@@ -7,11 +7,11 @@ import DOMPurify from "dompurify";
 
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
+const USER_KEY = "blog-user";
 
-/** Simple tags you can change as needed */
 const AVAILABLE_TAGS = ["Tech", "Life", "Tutorial", "Opinion", "Career", "News"];
 
-/** Auto-save hook: saves after 30s of inactivity */
+/* ---------- Auto-save hook ---------- */
 function useAutoSaveDraft(draft, delay = 30000) {
   useEffect(() => {
     const hasContent =
@@ -25,8 +25,9 @@ function useAutoSaveDraft(draft, delay = 30000) {
     const timeoutId = setTimeout(() => {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-        toast.info("Draft auto-saved", { autoClose: 1500, pauseOnHover: false });
+        toast.info("Draft auto-saved", { autoClose: 1400, pauseOnHover: false });
       } catch (err) {
+        console.error(err);
         toast.error("Failed to save draft");
       }
     }, delay);
@@ -35,7 +36,76 @@ function useAutoSaveDraft(draft, delay = 30000) {
   }, [draft, delay]);
 }
 
-/** Toolbar for formatting + link modal trigger */
+/* ---------- Dribbble-style Login Screen ---------- */
+function LoginScreen({ onLogin }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) {
+      toast.warn("Please fill in name and email");
+      return;
+    }
+    const user = { name: name.trim(), email: email.trim() };
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    onLogin(user);
+  };
+
+  return (
+    <div className="login-wrapper">
+      <div className="login-card">
+        <div className="login-logo-circle">IB</div>
+        <h1>Welcome to Interactive Blog</h1>
+        <p className="login-subtitle">
+          Sign in to start creating beautiful, rich posts just like Dribbble shots.
+        </p>
+
+        <form onSubmit={handleSubmit} className="login-form">
+          <div className="field">
+            <label>Full name</label>
+            <input
+              type="text"
+              placeholder="Murali Nadipena"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label>Email address</label>
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          <button type="submit" className="login-button">
+            Continue
+          </button>
+        </form>
+
+        <p className="login-footer">
+          This login is client-side only (no real authentication).{" "}
+          <span role="img" aria-label="lock">
+            🔒
+          </span>
+        </p>
+      </div>
+      <div className="login-hero">
+        <h2>Create, save, and share posts.</h2>
+        <p>
+          A clean, Dribbble-inspired editor with rich text, tags, images, auto-save and
+          live preview.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Editor toolbar ---------- */
 function EditorToolbar({ onFormat, onShowLinkModal }) {
   return (
     <div className="toolbar">
@@ -72,7 +142,7 @@ function EditorToolbar({ onFormat, onShowLinkModal }) {
   );
 }
 
-/** Link modal */
+/* ---------- Link modal ---------- */
 function LinkModal({ open, onClose, onInsert }) {
   const [url, setUrl] = useState("");
 
@@ -92,7 +162,7 @@ function LinkModal({ open, onClose, onInsert }) {
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <h3>Insert Hyperlink</h3>
+        <h3>Insert hyperlink</h3>
         <form onSubmit={handleSubmit}>
           <input
             type="url"
@@ -113,7 +183,7 @@ function LinkModal({ open, onClose, onInsert }) {
   );
 }
 
-/** Tag multi-select */
+/* ---------- Tag selector ---------- */
 function TagSelector({ selectedTags, onChange }) {
   const handleChange = (e) => {
     const values = Array.from(e.target.selectedOptions).map((o) => o.value);
@@ -135,7 +205,7 @@ function TagSelector({ selectedTags, onChange }) {
   );
 }
 
-/** Image uploader with fake progress */
+/* ---------- Image uploader ---------- */
 function ImageUploader({ images, onImagesChange }) {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -192,7 +262,7 @@ function ImageUploader({ images, onImagesChange }) {
   );
 }
 
-/** Preview pane */
+/* ---------- Preview pane ---------- */
 function PreviewPane({ title, content, tags, images }) {
   const sanitizedHtml = useMemo(
     () => DOMPurify.sanitize(content || ""),
@@ -232,7 +302,7 @@ function PreviewPane({ title, content, tags, images }) {
   );
 }
 
-/** Posts list with search */
+/* ---------- Posts view ---------- */
 function PostListView({ posts }) {
   const [query, setQuery] = useState("");
 
@@ -246,7 +316,7 @@ function PostListView({ posts }) {
 
   return (
     <div className="post-list-view">
-      <h2>All Blog Posts</h2>
+      <h2>Your published shots</h2>
       <input
         className="search-input"
         placeholder="Search by title or content..."
@@ -255,15 +325,23 @@ function PostListView({ posts }) {
       />
 
       {filtered.length === 0 ? (
-        <p className="no-posts">No posts found.</p>
+        <p className="no-posts">No posts found. Publish something from the editor.</p>
       ) : (
         <div className="post-list">
           {filtered.map((post) => (
             <div key={post.id} className="post-card">
               <h3>{post.title || "Untitled"}</h3>
-              <p className="post-snippet">{post.contentPlain.slice(0, 180)}...</p>
+              <p className="post-snippet">
+                {post.contentPlain.slice(0, 180)}
+                {post.contentPlain.length > 180 ? "..." : ""}
+              </p>
               <div className="post-meta">
-                <span>{new Date(post.createdAt).toLocaleString()}</span>
+                <span>
+                  {new Date(post.createdAt).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </span>
                 <div className="post-tags">
                   {post.tags.map((t) => (
                     <span key={t} className="tag-chip">
@@ -280,12 +358,14 @@ function PostListView({ posts }) {
   );
 }
 
+/* ---------- Main App ---------- */
 function App() {
+  const [user, setUser] = useState(null);
   const [view, setView] = useState("editor"); // "editor" | "posts"
   const [isPreview, setIsPreview] = useState(false);
 
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState(""); // HTML string from Quill
+  const [content, setContent] = useState("");
   const [tags, setTags] = useState([]);
   const [images, setImages] = useState([]);
 
@@ -294,8 +374,17 @@ function App() {
 
   const quillRef = useRef(null);
 
-  // Load draft & posts from localStorage
+  // Load user, draft & posts on first mount
   useEffect(() => {
+    const storedUser = localStorage.getItem(USER_KEY);
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem(USER_KEY);
+      }
+    }
+
     const savedDraft = localStorage.getItem(DRAFT_KEY);
     if (savedDraft) {
       try {
@@ -312,9 +401,15 @@ function App() {
     const savedPosts = localStorage.getItem(POSTS_KEY);
     if (savedPosts) {
       try {
-        setPosts(JSON.parse(savedPosts));
+        const parsed = JSON.parse(savedPosts);
+        if (Array.isArray(parsed)) {
+          setPosts(parsed);
+        } else {
+          localStorage.removeItem(POSTS_KEY);
+        }
       } catch (err) {
         console.error("Failed to parse posts", err);
+        localStorage.removeItem(POSTS_KEY);
       }
     }
   }, []);
@@ -324,7 +419,7 @@ function App() {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
   }, [posts]);
 
-  // Auto-save draft using custom hook
+  // Auto-save draft
   useAutoSaveDraft({ title, content, tags, images }, 30000);
 
   const handleFormat = (format, value) => {
@@ -332,11 +427,7 @@ function App() {
     if (!editor) return;
 
     if (format === "header") {
-      if (!value) {
-        editor.format("header", false);
-      } else {
-        editor.format("header", value);
-      }
+      editor.format("header", value || false);
       return;
     }
 
@@ -362,7 +453,6 @@ function App() {
       return;
     }
 
-    // Convert HTML to plain text for searching/snippets
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = content;
     const plainText = tempDiv.textContent || tempDiv.innerText || "";
@@ -380,7 +470,6 @@ function App() {
     setPosts((prev) => [newPost, ...prev]);
     toast.success("Post published!");
 
-    // Clear draft & localStorage draft
     setTitle("");
     setContent("");
     setTags([]);
@@ -395,23 +484,65 @@ function App() {
     images.length
   );
 
+  const handleLogout = () => {
+    localStorage.removeItem(USER_KEY);
+    setUser(null);
+  };
+
+  // If not logged in, show login screen only
+  if (!user) {
+    return (
+      <>
+        <LoginScreen onLogin={setUser} />
+        <ToastContainer position="bottom-right" theme="light" />
+      </>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Interactive Blog Editor</h1>
-        <div className="nav-buttons">
+        <div className="header-left">
+          <div className="logo-mark">IB</div>
+          <div className="logo-text">
+            <span className="brand">Interactive Blog</span>
+            <span className="tagline">Dribbble-style editor</span>
+          </div>
+          <nav className="main-nav">
+            <button
+              className={view === "editor" ? "nav-link active" : "nav-link"}
+              onClick={() => setView("editor")}
+            >
+              Editor
+            </button>
+            <button
+              className={view === "posts" ? "nav-link active" : "nav-link"}
+              onClick={() => setView("posts")}
+            >
+              Posts
+            </button>
+          </nav>
+        </div>
+
+        <div className="header-right">
           <button
-            className={view === "editor" ? "active" : ""}
+            type="button"
+            className="upload-chip"
             onClick={() => setView("editor")}
           >
-            Editor
+            + New post
           </button>
-          <button
-            className={view === "posts" ? "active" : ""}
-            onClick={() => setView("posts")}
-          >
-            Posts
-          </button>
+          <div className="user-pill">
+            <div className="avatar-circle">
+              {user.name?.charAt(0)?.toUpperCase() || "U"}
+            </div>
+            <div className="user-meta">
+              <span className="user-name">{user.name}</span>
+              <button onClick={handleLogout} className="logout-link">
+                Log out
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -421,7 +552,7 @@ function App() {
             <div className="editor-header-row">
               <input
                 className="title-input"
-                placeholder="Post title..."
+                placeholder="Give your post a catchy title..."
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
@@ -430,7 +561,7 @@ function App() {
                 className="preview-toggle"
                 onClick={() => setIsPreview((p) => !p)}
               >
-                {isPreview ? "Back to Editor" : "Preview"}
+                {isPreview ? "Back to editor" : "Preview"}
               </button>
             </div>
 
@@ -445,8 +576,9 @@ function App() {
                   theme="snow"
                   value={content}
                   onChange={setContent}
-                  modules={{ toolbar: false }} // we use our own toolbar
+                  modules={{ toolbar: false }}
                   className="editor"
+                  placeholder="Write your story here..."
                 />
 
                 <TagSelector selectedTags={tags} onChange={setTags} />
@@ -485,7 +617,7 @@ function App() {
         onInsert={handleInsertLink}
       />
 
-      <ToastContainer position="bottom-right" theme="dark" />
+      <ToastContainer position="bottom-right" theme="light" />
     </div>
   );
 }
