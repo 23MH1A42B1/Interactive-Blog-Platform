@@ -58,7 +58,7 @@ function LoginScreen({ onLogin }) {
         <div className="login-logo-circle">IB</div>
         <h1>Welcome to Interactive Blog</h1>
         <p className="login-subtitle">
-          Sign in to start creating beautiful, rich posts just like Dribbble shots.
+          Sign in to start creating beautiful, rich posts for your blog.
         </p>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -97,8 +97,7 @@ function LoginScreen({ onLogin }) {
       <div className="login-hero">
         <h2>Create, save, and share posts.</h2>
         <p>
-          A clean, Dribbble-inspired editor with rich text, tags, images, auto-save and
-          live preview.
+          A clean, modern editor with rich text, tags, images, auto-save and live preview.
         </p>
       </div>
     </div>
@@ -303,7 +302,7 @@ function PreviewPane({ title, content, tags, images }) {
 }
 
 /* ---------- Posts view ---------- */
-function PostListView({ posts }) {
+function PostListView({ posts, onSelectPost }) {
   const [query, setQuery] = useState("");
 
   const filtered = posts.filter((post) => {
@@ -316,7 +315,7 @@ function PostListView({ posts }) {
 
   return (
     <div className="post-list-view">
-      <h2>Your published shots</h2>
+      <h2>Your published posts</h2>
       <input
         className="search-input"
         placeholder="Search by title or content..."
@@ -329,7 +328,7 @@ function PostListView({ posts }) {
       ) : (
         <div className="post-list">
           {filtered.map((post) => (
-            <div key={post.id} className="post-card">
+            <div key={post.id} className="post-card" onClick={() => onSelectPost(post)}>
               <h3>{post.title || "Untitled"}</h3>
               <p className="post-snippet">
                 {post.contentPlain.slice(0, 180)}
@@ -489,6 +488,20 @@ function App() {
     setUser(null);
   };
 
+  const handleSelectPost = (post) => {
+  setTitle(post.title);
+  setContent(post.contentHtml);   // put HTML back into editor
+  setTags(post.tags || []);
+  setImages(post.images || []);
+  setView("editor");              // switch to editor tab
+  setIsPreview(false);            // make sure we’re not in preview
+  toast.info("Loaded post into editor for editing", {
+    autoClose: 1500,
+    pauseOnHover: false,
+  });
+};
+
+
   // If not logged in, show login screen only
   if (!user) {
     return (
@@ -506,7 +519,7 @@ function App() {
           <div className="logo-mark">IB</div>
           <div className="logo-text">
             <span className="brand">Interactive Blog</span>
-            <span className="tagline">Dribbble-style editor</span>
+            <span className="tagline">Interactive blog editor</span>
           </div>
           <nav className="main-nav">
             <button
@@ -609,7 +622,7 @@ function App() {
         </main>
       )}
 
-      {view === "posts" && <PostListView posts={posts} />}
+      {view === "posts" && <PostListView posts={posts} onSelectPost={handleSelectPost} />}
 
       <LinkModal
         open={linkModalOpen}
