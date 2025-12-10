@@ -162,6 +162,17 @@ function LoginScreen({ onLogin }) {
 
 /* ---------- Editor toolbar ---------- */
 function EditorToolbar({ onFormat, onShowLinkModal }) {
+  const handleHeadingChange = (e) => {
+    const value = e.target.value;
+    if (!value) {
+      onFormat("header", null); // normal
+    } else {
+      onFormat("header", Number(value)); // H1/H2/H3
+    }
+    // reset dropdown back to "Normal" after applying
+    e.target.value = "";
+  };
+
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -179,14 +190,14 @@ function EditorToolbar({ onFormat, onShowLinkModal }) {
           UL
         </button>
 
-        <select
-          onChange={(e) => onFormat("header", Number(e.target.value))}
-          defaultValue=""
-        >
+        <select onChange={handleHeadingChange} defaultValue="">
           <option value="">Normal</option>
           <option value="1">H1</option>
           <option value="2">H2</option>
           <option value="3">H3</option>
+          <option value="4">H4</option>
+          <option value="5">H5</option>
+          <option value="6">H6</option>
         </select>
 
         <button type="button" onClick={onShowLinkModal}>
@@ -207,26 +218,23 @@ function LinkModal({ open, onClose, onInsert }) {
 
   if (!open) return null;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
   e.preventDefault();
 
-  if (!email || !password) {
-    toast.warn("Please fill in email and password");
+  if (!url.trim()) {
+    toast.warn("Please enter a link URL");
     return;
   }
 
-  try {
-    let cred;
-    if (isSignup) {
-      cred = await createUserWithEmailAndPassword(auth, email, password);
-    } else {
-      cred = await signInWithEmailAndPassword(auth, email, password);
-    }
+  let finalUrl = url.trim();
 
-    onLogin(cred.user); // tells App user logged in
-  } catch (err) {
-    toast.error(err.message);
+  // Auto-add https:// if missing
+  if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
+    finalUrl = "https://" + finalUrl;
   }
+
+  onInsert(finalUrl);
+  onClose();
 };
 
 
@@ -236,11 +244,10 @@ function LinkModal({ open, onClose, onInsert }) {
         <h3>Insert hyperlink</h3>
         <form onSubmit={handleSubmit}>
           <input
-            type="url"
+            type="text"
             placeholder="https://example.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            required
           />
           <div className="modal-actions">
             <button type="button" onClick={onClose}>
@@ -253,6 +260,7 @@ function LinkModal({ open, onClose, onInsert }) {
     </div>
   );
 }
+
 
 /* ---------- Tag selector ---------- */
 function TagSelector({ selectedTags, onChange }) {
@@ -491,29 +499,44 @@ useEffect(() => {
   useAutoSaveDraft({ title, content, tags, images }, 30000);
 
   const handleFormat = (format, value) => {
-    const editor = quillRef.current?.getEditor();
-    if (!editor) return;
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
 
-    if (format === "header") {
-      editor.format("header", value || false);
-      return;
-    }
+  if (format === "header") {
+    editor.formatLine(
+      editor.getSelection()?.index || 0,
+      1,
+      "header",
+      value || false
+    );
+    return;
+  }
 
-    if (format === "list") {
-      editor.format("list", value);
-      return;
-    }
+  if (format === "list") {
+    editor.format("list", value);
+    return;
+  }
 
-    editor.format(format, !editor.getFormat()[format]);
-  };
+  editor.format(format, !editor.getFormat()[format]);
+};
+
 
   const handleInsertLink = (url) => {
-    const editor = quillRef.current?.getEditor();
-    if (!editor) return;
-    const range = editor.getSelection();
-    if (!range) return;
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
+
+  const range = editor.getSelection();
+
+  if (!range) {
+    editor.insertText(editor.getLength(), url, "link", url);
+  } else if (range.length === 0) {
+    editor.insertText(range.index, url, "link", url);
+  } else {
     editor.format("link", url);
-  };
+  }
+};
+
+
 
   const handlePublish = () => {
     if (!title.trim() && !content.trim()) {
