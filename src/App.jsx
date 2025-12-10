@@ -21,6 +21,7 @@ const USER_KEY = "blog-user";
 const AVAILABLE_TAGS = ["Tech", "Life", "Tutorial", "Opinion", "Career", "News"];
 
 /* ---------- Auto-save hook ---------- */
+// Auto-save draft every 30 seconds
 function useAutoSaveDraft(draft, delay = 30000) {
   useEffect(() => {
     const hasContent =
@@ -33,7 +34,7 @@ function useAutoSaveDraft(draft, delay = 30000) {
 
     const timeoutId = setTimeout(() => {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        localStorage.setItem("blog-draft", JSON.stringify(draft));
         toast.info("Draft auto-saved", { autoClose: 1400, pauseOnHover: false });
       } catch (err) {
         console.error(err);
@@ -44,6 +45,7 @@ function useAutoSaveDraft(draft, delay = 30000) {
     return () => clearTimeout(timeoutId);
   }, [draft, delay]);
 }
+
 
 /* ---------- Dribbble-style Login Screen ---------- */
 function LoginScreen({ onLogin }) {
@@ -458,6 +460,27 @@ useEffect(() => {
 
   return () => unsubscribe();
 }, []);
+
+// Load saved draft when app opens
+useEffect(() => {
+  const savedDraft = localStorage.getItem(DRAFT_KEY);
+  if (!savedDraft) return;
+
+  try {
+    const { title, content, tags, images } = JSON.parse(savedDraft);
+
+    setTitle(title || "");
+    setContent(content || "");
+    setTags(tags || []);
+    setImages(images || []);
+
+    console.log("Draft restored ✔");
+  } catch (err) {
+    console.error("Failed to restore draft", err);
+    localStorage.removeItem(DRAFT_KEY);
+  }
+}, []);
+
 
   // Persist posts whenever they change
   useEffect(() => {
