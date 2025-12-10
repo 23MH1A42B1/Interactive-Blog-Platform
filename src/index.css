@@ -799,10 +799,6 @@ body {
     row-gap: 0.5rem;
   }
 
-  .main-nav {
-    display: none;
-  }
-
   .editor-layout {
     padding: 1.1rem;
   }
