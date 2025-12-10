@@ -5,6 +5,15 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import DOMPurify from "dompurify";
 
+import { auth } from "./firebase";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
+
+
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
 const USER_KEY = "blog-user";
@@ -38,39 +47,62 @@ function useAutoSaveDraft(draft, delay = 30000) {
 
 /* ---------- Dribbble-style Login Screen ---------- */
 function LoginScreen({ onLogin }) {
+  const [isSignup, setIsSignup] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) {
-      toast.warn("Please fill in name and email");
+
+    if (!email || !password) {
+      toast.warn("Please fill in email and password");
       return;
     }
-    const user = { name: name.trim(), email: email.trim() };
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    onLogin(user);
+
+    try {
+      let cred;
+      if (isSignup) {
+        // sign up new user
+        cred = await createUserWithEmailAndPassword(auth, email, password);
+        // name is optional extra info – you can later store it in Firestore/profile
+      } else {
+        // login existing user
+        cred = await signInWithEmailAndPassword(auth, email, password);
+      }
+
+      onLogin(cred.user);
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message);
+    }
   };
 
   return (
     <div className="login-wrapper">
       <div className="login-card">
         <div className="login-logo-circle">IB</div>
-        <h1>Welcome to Interactive Blog</h1>
+        <h1>
+          {isSignup ? "Create your blog account" : "Welcome back"}
+        </h1>
         <p className="login-subtitle">
-          Sign in to start creating beautiful, rich posts for your blog.
+          {isSignup
+            ? "Sign up to start creating and managing your posts."
+            : "Log in to continue writing and editing your posts."}
         </p>
 
         <form onSubmit={handleSubmit} className="login-form">
-          <div className="field">
-            <label>Full name</label>
-            <input
-              type="text"
-              placeholder="Murali Nadipena"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
+          {isSignup && (
+            <div className="field">
+              <label>Full name</label>
+              <input
+                type="text"
+                placeholder="Murali Nadipena"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="field">
             <label>Email address</label>
@@ -82,18 +114,39 @@ function LoginScreen({ onLogin }) {
             />
           </div>
 
+          <div className="field">
+            <label>Password</label>
+            <input
+              type="password"
+              placeholder="Enter password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
           <button type="submit" className="login-button">
-            Continue
+            {isSignup ? "Sign up" : "Log in"}
           </button>
+
+          <p
+            style={{
+              cursor: "pointer",
+              fontSize: "0.8rem",
+              marginTop: "0.75rem",
+            }}
+            onClick={() => setIsSignup(!isSignup)}
+          >
+            {isSignup
+              ? "Already have an account? Log in"
+              : "New here? Create an account"}
+          </p>
         </form>
 
         <p className="login-footer">
-          This login is client-side only (no real authentication).{" "}
-          <span role="img" aria-label="lock">
-            🔒
-          </span>
+          Secure login powered by Firebase Authentication.
         </p>
       </div>
+
       <div className="login-hero">
         <h2>Create, save, and share posts.</h2>
         <p>
@@ -103,6 +156,7 @@ function LoginScreen({ onLogin }) {
     </div>
   );
 }
+
 
 /* ---------- Editor toolbar ---------- */
 function EditorToolbar({ onFormat, onShowLinkModal }) {
@@ -151,12 +205,28 @@ function LinkModal({ open, onClose, onInsert }) {
 
   if (!open) return null;
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!url.trim()) return;
-    onInsert(url.trim());
-    onClose();
-  };
+  const handleSubmit = async (e) => {
+  e.preventDefault();
+
+  if (!email || !password) {
+    toast.warn("Please fill in email and password");
+    return;
+  }
+
+  try {
+    let cred;
+    if (isSignup) {
+      cred = await createUserWithEmailAndPassword(auth, email, password);
+    } else {
+      cred = await signInWithEmailAndPassword(auth, email, password);
+    }
+
+    onLogin(cred.user); // tells App user logged in
+  } catch (err) {
+    toast.error(err.message);
+  }
+};
+
 
   return (
     <div className="modal-backdrop">
@@ -364,6 +434,7 @@ function PostListView({ posts, onSelectPost }) {
 /* ---------- Main App ---------- */
 function App() {
   const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState("editor"); // "editor" | "posts"
   const [isPreview, setIsPreview] = useState(false);
 
@@ -378,44 +449,15 @@ function App() {
   const quillRef = useRef(null);
 
   // Load user, draft & posts on first mount
-  useEffect(() => {
-    const storedUser = localStorage.getItem(USER_KEY);
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem(USER_KEY);
-      }
-    }
+  // Listen for real Firebase login/logout
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    setUser(firebaseUser);
+    setAuthLoading(false);
+  });
 
-    const savedDraft = localStorage.getItem(DRAFT_KEY);
-    if (savedDraft) {
-      try {
-        const { title, content, tags, images } = JSON.parse(savedDraft);
-        setTitle(title || "");
-        setContent(content || "");
-        setTags(tags || []);
-        setImages(images || []);
-      } catch (err) {
-        console.error("Failed to parse draft", err);
-      }
-    }
-
-    const savedPosts = localStorage.getItem(POSTS_KEY);
-    if (savedPosts) {
-      try {
-        const parsed = JSON.parse(savedPosts);
-        if (Array.isArray(parsed)) {
-          setPosts(parsed);
-        } else {
-          localStorage.removeItem(POSTS_KEY);
-        }
-      } catch (err) {
-        console.error("Failed to parse posts", err);
-        localStorage.removeItem(POSTS_KEY);
-      }
-    }
-  }, []);
+  return () => unsubscribe();
+}, []);
 
   // Persist posts whenever they change
   useEffect(() => {
@@ -487,10 +529,10 @@ function App() {
     images.length
   );
 
-  const handleLogout = () => {
-    localStorage.removeItem(USER_KEY);
-    setUser(null);
-  };
+  const handleLogout = async () => {
+  await signOut(auth);
+};
+
 
   const handleSelectPost = (post) => {
     setTitle(post.title);
