@@ -13,6 +13,16 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 
+import { db } from "./firebase";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  orderBy,
+  query,
+} from "firebase/firestore";
+
+
 
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
@@ -491,9 +501,29 @@ useEffect(() => {
 
 
   // Persist posts whenever they change
-  useEffect(() => {
-    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
-  }, [posts]);
+  // Load all posts from Firestore when app opens
+useEffect(() => {
+  const fetchPosts = async () => {
+    try {
+      const q = query(
+        collection(db, "posts"),
+        orderBy("createdAt", "desc")
+      );
+      const snap = await getDocs(q);
+      const loaded = snap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setPosts(loaded);
+    } catch (err) {
+      console.error("Failed to load posts", err);
+      toast.error("Failed to load posts");
+    }
+  };
+
+  fetchPosts();
+}, []);
+
 
   // Auto-save draft
   useAutoSaveDraft({ title, content, tags, images }, 30000);
