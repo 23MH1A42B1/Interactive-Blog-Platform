@@ -305,34 +305,37 @@ function PreviewPane({ title, content, tags, images }) {
 function PostListView({ posts, onSelectPost }) {
   const [query, setQuery] = useState("");
 
-  const filtered = posts.filter((post) => {
-    const q = query.toLowerCase();
-    return (
-      post.title.toLowerCase().includes(q) ||
-      post.contentPlain.toLowerCase().includes(q)
-    );
-  });
+  // 🔎 Filter posts only by title
+  const filtered = posts.filter((post) =>
+    post.title.toLowerCase().includes(query.toLowerCase())
+  );
 
   return (
     <div className="post-list-view">
       <h2>Your published posts</h2>
+
+      {/* 🔍 Search bar */}
       <input
         className="search-input"
-        placeholder="Search by title or content..."
+        placeholder="Search by title..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
 
       {filtered.length === 0 ? (
-        <p className="no-posts">No posts found. Publish something from the editor.</p>
+        <p className="no-posts">No posts found for this title.</p>
       ) : (
         <div className="post-list">
           {filtered.map((post) => (
-            <div key={post.id} className="post-card" onClick={() => onSelectPost(post)}>
+            <div
+              key={post.id}
+              className="post-card"
+              onClick={() => onSelectPost(post)}
+            >
               <h3>{post.title || "Untitled"}</h3>
               <p className="post-snippet">
-                {post.contentPlain.slice(0, 180)}
-                {post.contentPlain.length > 180 ? "..." : ""}
+                {post.contentPlain?.slice(0, 150)}
+                {post.contentPlain && post.contentPlain.length > 150 ? "..." : ""}
               </p>
               <div className="post-meta">
                 <span>
@@ -342,7 +345,7 @@ function PostListView({ posts, onSelectPost }) {
                   })}
                 </span>
                 <div className="post-tags">
-                  {post.tags.map((t) => (
+                  {post.tags?.map((t) => (
                     <span key={t} className="tag-chip">
                       {t}
                     </span>
@@ -356,6 +359,7 @@ function PostListView({ posts, onSelectPost }) {
     </div>
   );
 }
+
 
 /* ---------- Main App ---------- */
 function App() {
@@ -489,17 +493,19 @@ function App() {
   };
 
   const handleSelectPost = (post) => {
-  setTitle(post.title);
-  setContent(post.contentHtml);   // put HTML back into editor
-  setTags(post.tags || []);
-  setImages(post.images || []);
-  setView("editor");              // switch to editor tab
-  setIsPreview(false);            // make sure we’re not in preview
-  toast.info("Loaded post into editor for editing", {
-    autoClose: 1500,
-    pauseOnHover: false,
-  });
-};
+    setTitle(post.title);
+    setContent(post.contentHtml);
+    setTags(post.tags || []);
+    setImages(post.images || []);
+    setView("editor");
+    setIsPreview(false);
+
+    toast.info("Loaded post for editing", {
+      autoClose: 1200,
+      pauseOnHover: false,
+    });
+  };
+
 
 
   // If not logged in, show login screen only
