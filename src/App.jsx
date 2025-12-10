@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactQuill from "react-quill";
+
 import "react-quill/dist/quill.snow.css";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -13,25 +14,15 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 
-import { db } from "./firebase";
-import {
-  collection,
-  addDoc,
-  getDocs,
-  orderBy,
-  query,
-} from "firebase/firestore";
 
 
 
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
-const USER_KEY = "blog-user";
 
-const AVAILABLE_TAGS = ["Tech", "Life", "Tutorial", "Opinion", "Career", "News"];
+const AVAILABLE_TAGS = []; // not used now, but kept if needed later
 
 /* ---------- Auto-save hook ---------- */
-// Auto-save draft every 30 seconds
 function useAutoSaveDraft(draft, delay = 30000) {
   useEffect(() => {
     const hasContent =
@@ -44,7 +35,7 @@ function useAutoSaveDraft(draft, delay = 30000) {
 
     const timeoutId = setTimeout(() => {
       try {
-        localStorage.setItem("blog-draft", JSON.stringify(draft));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
         toast.info("Draft auto-saved", { autoClose: 1400, pauseOnHover: false });
       } catch (err) {
         console.error(err);
@@ -56,11 +47,10 @@ function useAutoSaveDraft(draft, delay = 30000) {
   }, [draft, delay]);
 }
 
-
-/* ---------- Dribbble-style Login Screen ---------- */
+/* ---------- Login Screen ---------- */
 function LoginScreen({ onLogin }) {
   const [isSignup, setIsSignup] = useState(true);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(""); // just UI
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -75,11 +65,8 @@ function LoginScreen({ onLogin }) {
     try {
       let cred;
       if (isSignup) {
-        // sign up new user
         cred = await createUserWithEmailAndPassword(auth, email, password);
-        // name is optional extra info – you can later store it in Firestore/profile
       } else {
-        // login existing user
         cred = await signInWithEmailAndPassword(auth, email, password);
       }
 
@@ -94,9 +81,7 @@ function LoginScreen({ onLogin }) {
     <div className="login-wrapper">
       <div className="login-card">
         <div className="login-logo-circle">IB</div>
-        <h1>
-          {isSignup ? "Create your blog account" : "Welcome back"}
-        </h1>
+        <h1>{isSignup ? "Create your blog account" : "Welcome back"}</h1>
         <p className="login-subtitle">
           {isSignup
             ? "Sign up to start creating and managing your posts."
@@ -162,13 +147,13 @@ function LoginScreen({ onLogin }) {
       <div className="login-hero">
         <h2>Create, save, and share posts.</h2>
         <p>
-          A clean, modern editor with rich text, tags, images, auto-save and live preview.
+          A clean, modern editor with rich text, tags, images, auto-save and
+          live preview.
         </p>
       </div>
     </div>
   );
 }
-
 
 /* ---------- Editor toolbar ---------- */
 function EditorToolbar({ onFormat, onShowLinkModal }) {
@@ -177,9 +162,8 @@ function EditorToolbar({ onFormat, onShowLinkModal }) {
     if (!value) {
       onFormat("header", null); // normal
     } else {
-      onFormat("header", Number(value)); // H1/H2/H3
+      onFormat("header", Number(value)); // H1..H6
     }
-    // reset dropdown back to "Normal" after applying
     e.target.value = "";
   };
 
@@ -229,24 +213,25 @@ function LinkModal({ open, onClose, onInsert }) {
   if (!open) return null;
 
   const handleSubmit = (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!url.trim()) {
-    toast.warn("Please enter a link URL");
-    return;
-  }
+    if (!url.trim()) {
+      toast.warn("Please enter a link URL");
+      return;
+    }
 
-  let finalUrl = url.trim();
+    let finalUrl = url.trim();
 
-  // Auto-add https:// if missing
-  if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
-    finalUrl = "https://" + finalUrl;
-  }
+    if (
+      !finalUrl.startsWith("http://") &&
+      !finalUrl.startsWith("https://")
+    ) {
+      finalUrl = "https://" + finalUrl;
+    }
 
-  onInsert(finalUrl);
-  onClose();
-};
-
+    onInsert(finalUrl);
+    onClose();
+  };
 
   return (
     <div className="modal-backdrop">
@@ -271,25 +256,62 @@ function LinkModal({ open, onClose, onInsert }) {
   );
 }
 
-
-/* ---------- Tag selector ---------- */
+/* ---------- Tag selector (free typing) ---------- */
 function TagSelector({ selectedTags, onChange }) {
-  const handleChange = (e) => {
-    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-    onChange(values);
+  const [input, setInput] = useState("");
+
+  const addTag = (raw) => {
+    const tag = raw.trim();
+    if (!tag) return;
+    if (selectedTags.includes(tag)) return;
+
+    onChange([...selectedTags, tag]);
+    setInput("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(input);
+    } else if (e.key === "Backspace" && !input && selectedTags.length) {
+      onChange(selectedTags.slice(0, -1));
+    }
+  };
+
+  const handleRemove = (tagToRemove) => {
+    onChange(selectedTags.filter((t) => t !== tagToRemove));
   };
 
   return (
     <div className="tag-selector">
-      <label>Tags / Categories</label>
-      <select multiple value={selectedTags} onChange={handleChange}>
-        {AVAILABLE_TAGS.map((tag) => (
-          <option key={tag} value={tag}>
+      <label>Tags</label>
+      <div className="tag-input-wrapper">
+        {selectedTags.map((tag) => (
+          <span key={tag} className="tag-chip">
             {tag}
-          </option>
+            <button
+              type="button"
+              className="tag-remove"
+              onClick={() => handleRemove(tag)}
+            >
+              ×
+            </button>
+          </span>
         ))}
-      </select>
-      <small>Hold Ctrl (Windows) or Cmd (Mac) to select multiple tags.</small>
+
+        <input
+          className="tag-text-input"
+          placeholder={
+            selectedTags.length === 0
+              ? "Type a tag and press Enter…"
+              : "Add another tag…"
+          }
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </div>
+      <small>Press Enter or comma to add a tag.</small>
     </div>
   );
 }
@@ -395,7 +417,6 @@ function PreviewPane({ title, content, tags, images }) {
 function PostListView({ posts, onSelectPost }) {
   const [query, setQuery] = useState("");
 
-  // 🔎 Filter posts only by title
   const filtered = posts.filter((post) =>
     post.title.toLowerCase().includes(query.toLowerCase())
   );
@@ -404,7 +425,6 @@ function PostListView({ posts, onSelectPost }) {
     <div className="post-list-view">
       <h2>Your published posts</h2>
 
-      {/* 🔍 Search bar */}
       <input
         className="search-input"
         placeholder="Search by title..."
@@ -429,10 +449,12 @@ function PostListView({ posts, onSelectPost }) {
               </p>
               <div className="post-meta">
                 <span>
-                  {new Date(post.createdAt).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
+                  {post.createdAt
+                    ? new Date(post.createdAt).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "Just now"}
                 </span>
                 <div className="post-tags">
                   {post.tags?.map((t) => (
@@ -449,7 +471,6 @@ function PostListView({ posts, onSelectPost }) {
     </div>
   );
 }
-
 
 /* ---------- Main App ---------- */
 function App() {
@@ -468,105 +489,95 @@ function App() {
 
   const quillRef = useRef(null);
 
-  // Load user, draft & posts on first mount
-  // Listen for real Firebase login/logout
-useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-    setUser(firebaseUser);
-    setAuthLoading(false);
-  });
+  // Firebase auth listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
 
-  return () => unsubscribe();
-}, []);
+    return () => unsubscribe();
+  }, []);
 
-// Load saved draft when app opens
-useEffect(() => {
-  const savedDraft = localStorage.getItem(DRAFT_KEY);
-  if (!savedDraft) return;
+  // Load saved draft when app opens
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    if (!savedDraft) return;
 
-  try {
-    const { title, content, tags, images } = JSON.parse(savedDraft);
+    try {
+      const { title, content, tags, images } = JSON.parse(savedDraft);
+      setTitle(title || "");
+      setContent(content || "");
+      setTags(tags || []);
+      setImages(images || []);
+    } catch (err) {
+      console.error("Failed to restore draft", err);
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, []);
 
-    setTitle(title || "");
-    setContent(content || "");
-    setTags(tags || []);
-    setImages(images || []);
-
-    console.log("Draft restored ✔");
-  } catch (err) {
-    console.error("Failed to restore draft", err);
-    localStorage.removeItem(DRAFT_KEY);
-  }
-}, []);
-
+  // Load posts from localStorage on first mount
+  useEffect(() => {
+    const savedPosts = localStorage.getItem(POSTS_KEY);
+    if (savedPosts) {
+      try {
+        const parsed = JSON.parse(savedPosts);
+        if (Array.isArray(parsed)) {
+          setPosts(parsed);
+        } else {
+          localStorage.removeItem(POSTS_KEY);
+        }
+      } catch (err) {
+        console.error("Failed to parse posts", err);
+        localStorage.removeItem(POSTS_KEY);
+      }
+    }
+  }, []);
 
   // Persist posts whenever they change
-  // Load all posts from Firestore when app opens
-useEffect(() => {
-  const fetchPosts = async () => {
-    try {
-      const q = query(
-        collection(db, "posts"),
-        orderBy("createdAt", "desc")
-      );
-      const snap = await getDocs(q);
-      const loaded = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setPosts(loaded);
-    } catch (err) {
-      console.error("Failed to load posts", err);
-      toast.error("Failed to load posts");
-    }
-  };
-
-  fetchPosts();
-}, []);
-
+  useEffect(() => {
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+  }, [posts]);
 
   // Auto-save draft
   useAutoSaveDraft({ title, content, tags, images }, 30000);
 
   const handleFormat = (format, value) => {
-  const editor = quillRef.current?.getEditor();
-  if (!editor) return;
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
 
-  if (format === "header") {
-    editor.formatLine(
-      editor.getSelection()?.index || 0,
-      1,
-      "header",
-      value || false
-    );
-    return;
-  }
+    if (format === "header") {
+      editor.formatLine(
+        editor.getSelection()?.index || 0,
+        1,
+        "header",
+        value || false
+      );
+      return;
+    }
 
-  if (format === "list") {
-    editor.format("list", value);
-    return;
-  }
+    if (format === "list") {
+      editor.format("list", value);
+      return;
+    }
 
-  editor.format(format, !editor.getFormat()[format]);
-};
-
+    editor.format(format, !editor.getFormat()[format]);
+  };
 
   const handleInsertLink = (url) => {
-  const editor = quillRef.current?.getEditor();
-  if (!editor) return;
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
 
-  const range = editor.getSelection();
+    const range = editor.getSelection();
 
-  if (!range) {
-    editor.insertText(editor.getLength(), url, "link", url);
-  } else if (range.length === 0) {
-    editor.insertText(range.index, url, "link", url);
-  } else {
-    editor.format("link", url);
-  }
-};
-
-
+    if (!range) {
+      editor.insertText(editor.getLength(), url, "link", url);
+    } else if (range.length === 0) {
+      editor.insertText(range.index, url, "link", url);
+    } else {
+      editor.format("link", url);
+    }
+  };
 
   const handlePublish = () => {
     if (!title.trim() && !content.trim()) {
@@ -606,9 +617,8 @@ useEffect(() => {
   );
 
   const handleLogout = async () => {
-  await signOut(auth);
-};
-
+    await signOut(auth);
+  };
 
   const handleSelectPost = (post) => {
     setTitle(post.title);
@@ -624,9 +634,19 @@ useEffect(() => {
     });
   };
 
+  const handleNewPostClick = () => {
+    setView("editor");
+    setTitle("");
+    setContent("");
+    setTags([]);
+    setImages([]);
+    localStorage.removeItem(DRAFT_KEY);
+  };
 
+  if (authLoading) {
+    return null;
+  }
 
-  // If not logged in, show login screen only
   if (!user) {
     return (
       <>
@@ -635,6 +655,9 @@ useEffect(() => {
       </>
     );
   }
+
+  const userInitial =
+    (user.email && user.email.charAt(0).toUpperCase()) || "U";
 
   return (
     <div className="app">
@@ -665,16 +688,14 @@ useEffect(() => {
           <button
             type="button"
             className="upload-chip"
-            onClick={() => setView("editor")}
+            onClick={handleNewPostClick}
           >
             + New post
           </button>
           <div className="user-pill">
-            <div className="avatar-circle">
-              {user.name?.charAt(0)?.toUpperCase() || "U"}
-            </div>
+            <div className="avatar-circle">{userInitial}</div>
             <div className="user-meta">
-              <span className="user-name">{user.name}</span>
+              <span className="user-name">{user.email}</span>
               <button onClick={handleLogout} className="logout-link">
                 Log out
               </button>
@@ -746,7 +767,9 @@ useEffect(() => {
         </main>
       )}
 
-      {view === "posts" && <PostListView posts={posts} onSelectPost={handleSelectPost} />}
+      {view === "posts" && (
+        <PostListView posts={posts} onSelectPost={handleSelectPost} />
+      )}
 
       <LinkModal
         open={linkModalOpen}
