@@ -1,34 +1,30 @@
 // src/App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-// Import Quill first so we can register formats safely
+// Quill + ReactQuill
 import Quill from "quill";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
+// image resize module for Quill (default export)
+import ImageResize from "quill-image-resize-module-react";
+try {
+  Quill.register("modules/imageResize", ImageResize);
+} catch (err) {
+  console.warn("ImageResize registration failed:", err);
+}
+
+// toast + sanitize
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import DOMPurify from "dompurify";
 
-import { auth } from "./firebase";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-} from "firebase/auth";
-
-/* ---------------- safe size registration ----------------
-   wrap in try/catch to avoid breaking the whole app if something goes wrong
-*/
+/* ---------------- safe size registration ---------------- */
 try {
   const SizeStyle = Quill.import("attributors/style/size");
   SizeStyle.whitelist = ["36px", "32px", "28px", "24px", "18px", "14px"];
   Quill.register(SizeStyle, true);
 } catch (err) {
-  // If registration fails, don't crash the app — just log and continue.
-  // Registration may fail in some bundler/SSR environments; this guard prevents a blank page.
-  // eslint-disable-next-line no-console
   console.warn("Quill size registration failed (non-fatal):", err);
 }
 
@@ -36,7 +32,19 @@ try {
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
 
-/* ---------- Auto-save hook (debounced by inactivity) ---------- */
+/* ---------- helper: clean Quill HTML ---------- */
+function cleanHtml(rawHtml) {
+  if (!rawHtml) return "";
+  let html = rawHtml.trim();
+  html = html.replace(/<p>(\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "<p></p>");
+  html = html.replace(/(<p>\s*<\/p>\s*){2,}/gi, "<p></p>");
+  html = html.replace(/^(<p>\s*<\/p>\s*)+/i, "");
+  html = html.replace(/(<p>\s*<\/p>\s*)+$/i, "");
+  html = html.replace(/(<br\s*\/?>\s*){2,}/gi, "<br/>");
+  return html.trim();
+}
+
+/* ---------- Auto-save hook ---------- */
 function useAutoSaveDraft(draft, delay = 30000) {
   useEffect(() => {
     const hasContent =
@@ -52,7 +60,6 @@ function useAutoSaveDraft(draft, delay = 30000) {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
         toast.info("Draft auto-saved", { autoClose: 1400, pauseOnHover: false });
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(err);
         toast.error("Failed to save draft");
       }
@@ -60,77 +67,6 @@ function useAutoSaveDraft(draft, delay = 30000) {
 
     return () => clearTimeout(timeoutId);
   }, [draft, delay]);
-}
-
-/* ---------- Login Screen ---------- */
-function LoginScreen({ onLogin }) {
-  const [isSignup, setIsSignup] = useState(true);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email || !password) {
-      toast.warn("Please fill in email and password");
-      return;
-    }
-    try {
-      let cred;
-      if (isSignup) cred = await createUserWithEmailAndPassword(auth, email, password);
-      else cred = await signInWithEmailAndPassword(auth, email, password);
-      onLogin(cred.user);
-    } catch (err) {
-      // firebase error messages are helpful
-      toast.error(err.message || "Auth error");
-    }
-  };
-
-  return (
-    <div className="login-wrapper">
-      <div className="login-card">
-        <div className="login-logo-circle">IB</div>
-        <h1>{isSignup ? "Create your blog account" : "Welcome back"}</h1>
-        <p className="login-subtitle">
-          {isSignup ? "Sign up to start creating and managing your posts." : "Log in to continue writing and editing your posts."}
-        </p>
-
-        <form onSubmit={handleSubmit} className="login-form">
-          {isSignup && (
-            <div className="field">
-              <label>Full name</label>
-              <input type="text" placeholder="Murali Nadipena" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-          )}
-
-          <div className="field">
-            <label>Email address</label>
-            <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-
-          <div className="field">
-            <label>Password</label>
-            <input type="password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-
-          <button type="submit" className="login-button">
-            {isSignup ? "Sign up" : "Log in"}
-          </button>
-
-          <p style={{ cursor: "pointer", fontSize: "0.8rem", marginTop: "0.75rem" }} onClick={() => setIsSignup(!isSignup)}>
-            {isSignup ? "Already have an account? Log in" : "New here? Create an account"}
-          </p>
-        </form>
-
-        <p className="login-footer">Secure login powered by Firebase Authentication.</p>
-      </div>
-
-      <div className="login-hero">
-        <h2>Create, save, and share posts.</h2>
-        <p>A clean, modern editor with rich text, tags, images, auto-save and live preview.</p>
-      </div>
-    </div>
-  );
 }
 
 /* ---------- Editor toolbar ---------- */
@@ -151,7 +87,6 @@ function EditorToolbar({ onFormat, onShowLinkModal }) {
       <div className="toolbar-left">
         <button onClick={() => onFormat("bold")} type="button">B</button>
         <button onClick={() => onFormat("italic")} type="button">i</button>
-
         <button onClick={() => onFormat("list", "ordered")} type="button">OL</button>
         <button onClick={() => onFormat("list", "bullet")} type="button">UL</button>
 
@@ -238,29 +173,183 @@ function TagSelector({ selectedTags, onChange }) {
   );
 }
 
-/* ---------- Image uploader ---------- */
-function ImageUploader({ images, onImagesChange }) {
+/* ---------- Image uploader (insert + drag/resize support) ---------- */
+function ImageUploader({ images, onImagesChange, quillRef }) {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // global drag move helpers (per-editor)
+  const draggingState = useRef({
+    draggedImgEl: null,   // DOM img element being dragged
+    draggedBlot: null,    // corresponding Quill blot
+    draggedSrc: null,
+  });
+
+  // called after insert to set draggable + event handlers on the inserted image DOM
+  const prepareImageDom = (imgEl) => {
+    if (!imgEl) return;
+    imgEl.setAttribute("draggable", "true");
+
+    // ondragstart: store element and blot for later removal (move)
+    imgEl.addEventListener("dragstart", (ev) => {
+      try {
+        const src = imgEl.getAttribute("src");
+        draggingState.current.draggedImgEl = imgEl;
+        draggingState.current.draggedSrc = src;
+        // find blot for removal using Quill.find
+        const blot = Quill.find(imgEl);
+        draggingState.current.draggedBlot = blot || null;
+        // put src into dataTransfer so drop handlers can detect it
+        if (ev.dataTransfer) ev.dataTransfer.setData("text/plain", src);
+      } catch (err) {
+        // ignore
+      }
+    });
+
+    // optional: ondragend clear
+    imgEl.addEventListener("dragend", () => {
+      draggingState.current.draggedImgEl = null;
+      draggingState.current.draggedBlot = null;
+      draggingState.current.draggedSrc = null;
+    });
+  };
+
+  const insertImageIntoEditor = (imageUrl, fileName) => {
+    const editor = quillRef?.current?.getEditor();
+    if (!editor) {
+      onImagesChange((prev) => [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl }]);
+      return;
+    }
+
+    // Insert at current cursor position (or end)
+    const range = editor.getSelection(true);
+    const index = (range && typeof range.index === "number") ? range.index : editor.getLength();
+
+    editor.insertEmbed(index, "image", imageUrl, "user");
+    editor.setSelection(index + 1, 0);
+
+    // After Quill renders the embed, style and make it draggable + attach handlers
+    setTimeout(() => {
+      try {
+        const imgs = editor.root.querySelectorAll("img");
+        const imgEl = imgs[imgs.length - 1];
+        if (imgEl) {
+          imgEl.setAttribute("data-default-size", "true");
+          imgEl.style.width = "60%";
+          imgEl.style.maxWidth = "100%";
+          imgEl.style.height = "auto";
+          imgEl.style.display = "block";
+          imgEl.style.margin = "0.5rem 0";
+          prepareImageDom(imgEl);
+        }
+      } catch (err) {
+        // ignore
+      }
+    }, 60);
+
+    // Add to local list for preview/management
+    onImagesChange((prev) => [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl }]);
+
+    // Make the editor accept drops for moving images: (attach once)
+    const root = quillRef?.current?.getEditor().root;
+    if (root && !root._hasDropHandlers) {
+      root._hasDropHandlers = true;
+      // allow drop
+      root.addEventListener("dragover", (e) => {
+        e.preventDefault();
+      });
+
+      root.addEventListener("drop", (e) => {
+        e.preventDefault();
+
+        const editor = quillRef?.current?.getEditor();
+        if (!editor) return;
+
+        // try to read src from dataTransfer
+        const src = e.dataTransfer?.getData("text/plain") || null;
+
+        // get drop position: Quill usually sets selection for drop location, so prefer it
+        let dropIndex = editor.getSelection(true)?.index;
+        if (dropIndex == null) {
+          // fallback: try caret position from point
+          let range;
+          if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
+          else if (document.caretPositionFromPoint) {
+            const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+            if (pos) range = document.createRange();
+            if (pos) range.setStart(pos.offsetNode, pos.offset);
+          }
+          if (range) {
+            // get node at that caret - walk up to find blot
+            const node = range.startContainer;
+            try {
+              const blot = Quill.find(node);
+              dropIndex = blot ? editor.getIndex(blot) : editor.getLength();
+            } catch {
+              dropIndex = editor.getLength();
+            }
+          } else {
+            dropIndex = editor.getLength();
+          }
+        }
+
+        // if we have a src, insert it at dropIndex
+        if (src) {
+          editor.insertEmbed(dropIndex, "image", src, "user");
+          // remove the original image blot if we have it (move)
+          const dragged = draggingState.current;
+          if (dragged && dragged.draggedBlot) {
+            try {
+              const originalIndex = editor.getIndex(dragged.draggedBlot);
+              // If originalIndex < newIndex and original will be removed first, newIndex shifts - handle carefully:
+              // If originalIndex < dropIndex, after deletion dropIndex should be reduced by 1
+              let adjustedDropIndex = dropIndex;
+              if (typeof originalIndex === "number" && originalIndex < dropIndex) adjustedDropIndex = dropIndex - 1;
+              editor.deleteText(originalIndex, 1);
+              // clear drag state
+              draggingState.current.draggedBlot = null;
+              draggingState.current.draggedImgEl = null;
+              draggingState.current.draggedSrc = null;
+            } catch (err) {
+              // ignore removal errors
+            }
+          }
+        } else {
+          // no src in dataTransfer — nothing to do
+        }
+      });
+    }
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
     setProgress(0);
-    const uploadInterval = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + 12;
-        if (next >= 100) {
-          clearInterval(uploadInterval);
-          const url = URL.createObjectURL(file);
-          onImagesChange([...images, { id: Date.now(), name: file.name, url }]);
+
+    // Read file as data URL (base64)
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      let simulated = 0;
+      const timer = setInterval(() => {
+        simulated += 15;
+        setProgress(Math.min(simulated, 100));
+        if (simulated >= 100) {
+          clearInterval(timer);
+          insertImageIntoEditor(dataUrl, file.name);
           setIsUploading(false);
-          toast.success("Image uploaded");
+          toast.success("Image uploaded and inserted into editor");
         }
-        return Math.min(next, 100);
-      });
-    }, 180);
+      }, 140);
+    };
+
+    reader.onerror = (err) => {
+      console.error("FileReader error:", err);
+      toast.error("Failed to read image file");
+      setIsUploading(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleRemove = (id) => onImagesChange(images.filter((i) => i.id !== id));
@@ -275,11 +364,12 @@ function ImageUploader({ images, onImagesChange }) {
           <span>{progress}%</span>
         </div>
       )}
+
       {images.length > 0 && (
         <div className="image-list">
           {images.map((img) => (
             <div key={img.id} className="image-item">
-              <img src={img.url} alt={img.name} />
+              <img src={img.url} alt={img.name} style={{ maxWidth: 120, maxHeight: 80, objectFit: "cover" }} />
               <span>{img.name}</span>
               <button type="button" onClick={() => handleRemove(img.id)}>Remove</button>
             </div>
@@ -293,15 +383,31 @@ function ImageUploader({ images, onImagesChange }) {
 /* ---------- Preview pane ---------- */
 function PreviewPane({ title, content, tags, images }) {
   const sanitizedHtml = useMemo(() => DOMPurify.sanitize(content || ""), [content]);
+
   return (
     <div className="preview-pane">
       <h2>{title || "Untitled Post"}</h2>
-      {tags.length > 0 && <div className="preview-tags">{tags.map((t)=> <span key={t} className="tag-chip">{t}</span>)}</div>}
+
+      {tags && tags.filter(Boolean).length > 0 && (
+        <div className="preview-tags">
+          {tags.filter(Boolean).map((t) => (
+            <span key={t} className="tag-chip">{t}</span>
+          ))}
+        </div>
+      )}
+
       <div className="preview-content" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
-      {images.length > 0 && <>
-        <h3>Images</h3>
-        <div className="preview-images">{images.map((img)=><img key={img.id} src={img.url} alt={img.name} />)}</div>
-      </>}
+
+      {images.length > 0 && (
+        <>
+          <h3>Images</h3>
+          <div className="preview-images">
+            {images.map((img) => (
+              <img key={img.id} src={img.url} alt={img.name} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -323,8 +429,8 @@ function PostListView({ posts, onSelectPost }) {
       <input className="search-input" placeholder="Search by title or content..." value={query} onChange={(e)=>setQuery(e.target.value)} />
       {filtered.length === 0 ? <p className="no-posts">No posts found for this query.</p> : (
         <div className="post-list">
-          {filtered.map((post)=>(
-            <div key={post.id} className="post-card" onClick={()=>onSelectPost(post)}>
+          {filtered.map((post) => (
+            <div key={post.id} className="post-card" onClick={() => onSelectPost(post)}>
               <h3>{post.title || "Untitled"}</h3>
               <p className="post-snippet">{post.contentPlain?.slice(0,150)}{post.contentPlain && post.contentPlain.length > 150 ? "..." : ""}</p>
               <div className="post-meta">
@@ -341,9 +447,7 @@ function PostListView({ posts, onSelectPost }) {
 
 /* ---------- Main App ---------- */
 function App() {
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState("editor");
+  const [view, setView] = useState("editor"); // "editor" | "posts"
   const [isPreview, setIsPreview] = useState(false);
 
   const [title, setTitle] = useState("");
@@ -357,24 +461,15 @@ function App() {
   const quillRef = useRef(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
     const savedDraft = localStorage.getItem(DRAFT_KEY);
     if (!savedDraft) return;
     try {
-      const { title, content, tags, images } = JSON.parse(savedDraft);
-      setTitle(title || "");
-      setContent(content || "");
-      setTags(tags || []);
-      setImages(images || []);
+      const { title: sTitle, content: sContent, tags: sTags, images: sImages } = JSON.parse(savedDraft);
+      setTitle(sTitle || "");
+      setContent(cleanHtml(sContent || ""));
+      setTags(Array.isArray(sTags) ? sTags.filter(Boolean) : []);
+      setImages(Array.isArray(sImages) ? sImages : []);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error("Failed to restore draft", err);
       localStorage.removeItem(DRAFT_KEY);
     }
@@ -388,7 +483,6 @@ function App() {
         if (Array.isArray(parsed)) setPosts(parsed);
         else localStorage.removeItem(POSTS_KEY);
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error("Failed to parse posts", err);
         localStorage.removeItem(POSTS_KEY);
       }
@@ -401,7 +495,11 @@ function App() {
 
   useAutoSaveDraft({ title, content, tags, images }, 30000);
 
-  // IMPORTANT: use index, length signature for getFormat / formatText to avoid runtime errors
+  const quillModules = {
+    toolbar: false,
+    imageResize: {},
+  };
+
   const handleFormat = (format, value) => {
     const editor = quillRef.current?.getEditor();
     if (!editor) return;
@@ -461,31 +559,56 @@ function App() {
 
   const handlePublish = () => {
     if (!title.trim() && !content.trim()) { toast.warn("Add a title or some content before publishing"); return; }
+
+    const cleanedHtml = cleanHtml(content);
     const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = content;
+    tempDiv.innerHTML = cleanedHtml;
     const plainText = tempDiv.textContent || tempDiv.innerText || "";
-    const newPost = { id: Date.now(), title: title.trim() || "Untitled Post", contentHtml: content, contentPlain: plainText, tags, images, createdAt: new Date().toISOString() };
-    setPosts((prev)=>[newPost,...prev]);
+
+    const newPost = {
+      id: Date.now(),
+      title: title.trim() || "Untitled Post",
+      contentHtml: cleanedHtml,
+      contentPlain: plainText,
+      tags: (tags || []).filter(Boolean),
+      images,
+      createdAt: new Date().toISOString(),
+    };
+
+    setPosts((prev) => [newPost, ...prev]);
     toast.success("Post published!");
-    setTitle(""); setContent(""); setTags([]); setImages([]); localStorage.removeItem(DRAFT_KEY);
+
+    setTitle("");
+    setContent("");
+    setTags([]);
+    setImages([]);
+    localStorage.removeItem(DRAFT_KEY);
   };
 
   const draftChanged = !!((title && title.trim()) || (content && content.trim()) || (tags && tags.length) || (images && images.length));
-  const handleLogout = async () => { await signOut(auth); };
 
   const handleSelectPost = (post) => {
-    setTitle(post.title || ""); setContent(post.contentHtml || ""); setTags(post.tags || []); setImages(post.images || []); setView("editor"); setIsPreview(false);
-    toast.info("Loaded post for editing", { autoClose: 1200, pauseOnHover: false });
+    setTitle(post.title || "");
+    setContent(cleanHtml(post.contentHtml || ""));
+    setTags((post.tags || []).filter(Boolean));
+    setImages(post.images || []);
+    setView("editor");
+    setIsPreview(false);
+
+    toast.info("Loaded post for editing", {
+      autoClose: 1200,
+      pauseOnHover: false,
+    });
   };
 
   const handleNewPostClick = () => {
-    setView("editor"); setTitle(""); setContent(""); setTags([]); setImages([]); localStorage.removeItem(DRAFT_KEY);
+    setView("editor");
+    setTitle("");
+    setContent("");
+    setTags([]);
+    setImages([]);
+    localStorage.removeItem(DRAFT_KEY);
   };
-
-  if (authLoading) return null;
-  if (!user) return (<><LoginScreen onLogin={setUser} /><ToastContainer position="bottom-right" theme="light" /></>);
-
-  const userInitial = (user.email && user.email.charAt(0).toUpperCase()) || "U";
 
   return (
     <div className="app">
@@ -501,10 +624,6 @@ function App() {
 
         <div className="header-right">
           <button type="button" className="upload-chip" onClick={handleNewPostClick}>+ New post</button>
-          <div className="user-pill">
-            <div className="avatar-circle">{userInitial}</div>
-            <div className="user-meta"><span className="user-name">{user.email}</span><button onClick={handleLogout} className="logout-link">Log out</button></div>
-          </div>
         </div>
       </header>
 
@@ -518,10 +637,24 @@ function App() {
 
             {!isPreview && <>
               <EditorToolbar onFormat={handleFormat} onShowLinkModal={()=>setLinkModalOpen(true)} />
-              <ReactQuill ref={quillRef} theme="snow" value={content} onChange={setContent} modules={{ toolbar: false }} className="editor" placeholder="Write your story here..." />
+              <ReactQuill
+                ref={quillRef}
+                theme="snow"
+                value={content}
+                onChange={(html) => {
+                  // keep editor responsive, but store cleaned HTML
+                  setContent(cleanHtml(html));
+                }}
+                modules={quillModules}
+                className="editor"
+                placeholder="Write your story here..."
+              />
               <TagSelector selectedTags={tags} onChange={setTags} />
-              <ImageUploader images={images} onImagesChange={setImages} />
-              <div className="editor-actions"><button type="button" onClick={handlePublish}>Publish Post</button>{draftChanged && <span className="draft-hint">Draft auto-saves after 30 seconds of inactivity.</span>}</div>
+              <ImageUploader images={images} onImagesChange={setImages} quillRef={quillRef} />
+              <div className="editor-actions">
+                <button type="button" onClick={handlePublish}>Publish Post</button>
+                {draftChanged && <span className="draft-hint">Draft auto-saves after 30 seconds of inactivity.</span>}
+              </div>
             </>}
 
             {isPreview && <PreviewPane title={title} content={content} tags={tags} images={images} />}
@@ -533,6 +666,15 @@ function App() {
 
       <LinkModal open={linkModalOpen} onClose={()=>setLinkModalOpen(false)} onInsert={handleInsertLink} />
       <ToastContainer position="bottom-right" theme="light" />
+
+      {/* small style fixes to improve preview spacing and title placement */}
+      <style>{`
+        .preview-pane h2 { margin: 0 0 0.6rem; line-height: 1.15; }
+        .preview-content p { margin: 0 0 0.68rem; }
+        .preview-content p:empty { display: none; }
+        .ql-editor img { max-width: 100%; height: auto; display: block; margin: 0.5rem 0; }
+        .ql-editor img[data-default-size="true"] { width: 60%; max-width: 100%; height: auto; }
+      `}</style>
     </div>
   );
 }

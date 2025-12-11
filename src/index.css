@@ -834,3 +834,21 @@ body {
     padding: 1.2rem;
   }
 }
+
+/* keep editor images from overflowing */
+.ql-editor img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.5rem 0;
+}
+
+/* default starting size for newly inserted images (the JS sets data-default-size attribute) */
+.ql-editor img[data-default-size="true"] {
+  width: 60%;
+  max-width: 100%;
+  height: auto;
+}
+
+
+
