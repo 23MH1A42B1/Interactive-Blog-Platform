@@ -1,38 +1,27 @@
 // src/App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-
-// Quill + ReactQuill
 import Quill from "quill";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
-// image resize module for Quill (default export)
+// optional: Quill image resize (if installed)
 import ImageResize from "quill-image-resize-module-react";
 try {
   Quill.register("modules/imageResize", ImageResize);
 } catch (err) {
-  console.warn("ImageResize registration failed:", err);
+  // ignore if not installed
+  // console.warn("quill image-resize registration failed", err);
 }
 
-// toast + sanitize
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import DOMPurify from "dompurify";
-
-/* ---------------- safe size registration ---------------- */
-try {
-  const SizeStyle = Quill.import("attributors/style/size");
-  SizeStyle.whitelist = ["36px", "32px", "28px", "24px", "18px", "14px"];
-  Quill.register(SizeStyle, true);
-} catch (err) {
-  console.warn("Quill size registration failed (non-fatal):", err);
-}
 
 /* ---------- constants ---------- */
 const DRAFT_KEY = "blog-draft";
 const POSTS_KEY = "blog-posts";
 
-/* ---------- helper: clean Quill HTML ---------- */
+/* ---------- helper: clean Quill HTML (run once on publish) ---------- */
 function cleanHtml(rawHtml) {
   if (!rawHtml) return "";
   let html = rawHtml.trim();
@@ -44,7 +33,7 @@ function cleanHtml(rawHtml) {
   return html.trim();
 }
 
-/* ---------- Auto-save hook ---------- */
+/* ---------- autosave hook (debounced) ---------- */
 function useAutoSaveDraft(draft, delay = 30000) {
   useEffect(() => {
     const hasContent =
@@ -55,42 +44,50 @@ function useAutoSaveDraft(draft, delay = 30000) {
 
     if (!hasContent) return;
 
-    const timeoutId = setTimeout(() => {
+    const t = setTimeout(() => {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-        toast.info("Draft auto-saved", { autoClose: 1400, pauseOnHover: false });
+        toast.info("Draft auto-saved", { autoClose: 1100, pauseOnHover: false });
       } catch (err) {
         console.error(err);
         toast.error("Failed to save draft");
       }
     }, delay);
 
-    return () => clearTimeout(timeoutId);
+    return () => clearTimeout(t);
   }, [draft, delay]);
 }
 
-/* ---------- Editor toolbar ---------- */
-function EditorToolbar({ onFormat, onShowLinkModal }) {
-  const handleHeadingChange = (e) => {
-    const value = e.target.value;
-    if (!value) {
-      onFormat("size", false);
-    } else {
-      const map = { h1: "36px", h2: "32px", h3: "28px", h4: "24px", h5: "18px", h6: "14px" };
-      onFormat("size", map[value]);
-    }
+/* ---------- Editor toolbar (with width/height inputs) ---------- */
+function EditorToolbar({ onFormat, onShowLinkModal, onResizeImage }) {
+  const [widthVal, setWidthVal] = useState("");
+  const [heightVal, setHeightVal] = useState("");
+
+  const handleHeading = (e) => {
+    const map = { h1: "36px", h2: "32px", h3: "28px", h4: "24px", h5: "18px", h6: "14px" };
+    const v = e.target.value;
+    onFormat("size", v ? map[v] : false);
     e.target.value = "";
   };
 
-  return (
-    <div className="toolbar">
-      <div className="toolbar-left">
-        <button onClick={() => onFormat("bold")} type="button">B</button>
-        <button onClick={() => onFormat("italic")} type="button">i</button>
-        <button onClick={() => onFormat("list", "ordered")} type="button">OL</button>
-        <button onClick={() => onFormat("list", "bullet")} type="button">UL</button>
+  const applyResize = () => {
+    if (!widthVal && !heightVal) {
+      toast.warn("Enter width or height (e.g. 300 or 50%)");
+      return;
+    }
+    onResizeImage(widthVal.trim(), heightVal.trim());
+    // keep inputs intact so user can adjust again if needed
+  };
 
-        <select onChange={handleHeadingChange} defaultValue="">
+  return (
+    <div className="toolbar" style={{ alignItems: "center" }}>
+      <div className="toolbar-left">
+        <button type="button" onClick={() => onFormat("bold")}>B</button>
+        <button type="button" onClick={() => onFormat("italic")}>i</button>
+        <button type="button" onClick={() => onFormat("list", "ordered")}>OL</button>
+        <button type="button" onClick={() => onFormat("list", "bullet")}>UL</button>
+
+        <select defaultValue="" onChange={handleHeading}>
           <option value="">Normal</option>
           <option value="h1">H1</option>
           <option value="h2">H2</option>
@@ -101,6 +98,29 @@ function EditorToolbar({ onFormat, onShowLinkModal }) {
         </select>
 
         <button type="button" onClick={onShowLinkModal}>Insert Link</button>
+
+        {/* image size controls */}
+        <div style={{ display: "inline-flex", gap: 8, marginLeft: 12, alignItems: "center" }}>
+          <input
+            aria-label="Image width"
+            title="Width (px or %). e.g. 300 or 50%"
+            value={widthVal}
+            onChange={(e) => setWidthVal(e.target.value)}
+            placeholder="Width (px or %)"
+            style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", width: 120 }}
+          />
+          <input
+            aria-label="Image height"
+            title="Height (px or %). e.g. 200 or 50%"
+            value={heightVal}
+            onChange={(e) => setHeightVal(e.target.value)}
+            placeholder="Height (px or %)"
+            style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", width: 120 }}
+          />
+          <button type="button" onClick={applyResize} style={{ padding: "6px 10px", borderRadius: 8 }}>
+            Apply
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -118,9 +138,9 @@ function LinkModal({ open, onClose, onInsert }) {
       toast.warn("Please enter a link URL");
       return;
     }
-    let finalUrl = url.trim();
-    if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) finalUrl = "https://" + finalUrl;
-    onInsert(finalUrl);
+    let final = url.trim();
+    if (!final.startsWith("http://") && !final.startsWith("https://")) final = "https://" + final;
+    onInsert(final);
     onClose();
   };
 
@@ -151,13 +171,14 @@ function TagSelector({ selectedTags, onChange }) {
     if (selectedTags.includes(tag)) return;
     onChange([...selectedTags, tag]);
     setInput("");
-    // keep focus on tag input after adding
     setTimeout(() => inputRef.current?.focus(), 0);
   };
+
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(input); }
     else if (e.key === "Backspace" && !input && selectedTags.length) onChange(selectedTags.slice(0, -1));
   };
+
   const handleRemove = (tagToRemove) => onChange(selectedTags.filter((t) => t !== tagToRemove));
 
   return (
@@ -177,152 +198,56 @@ function TagSelector({ selectedTags, onChange }) {
   );
 }
 
-/* ---------- Image uploader (insert + drag/resize support) ---------- */
+/* ---------- Image uploader (insert + persist thumbnail sizes) ---------- */
 function ImageUploader({ images, onImagesChange, quillRef }) {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // global drag move helpers (per-editor)
-  const draggingState = useRef({
-    draggedImgEl: null,   // DOM img element being dragged
-    draggedBlot: null,    // corresponding Quill blot
-    draggedSrc: null,
-  });
-
-  // called after insert to set draggable + event handlers on the inserted image DOM
   const prepareImageDom = (imgEl) => {
     if (!imgEl) return;
     imgEl.setAttribute("draggable", "true");
-
-    // ondragstart: store element and blot for later removal (move)
+    imgEl.setAttribute("data-default-size", "true");
+    // default inline style so the HTML contains it (editor content includes style)
+    // use percentage default to look good in article body; thumbnails use separate stored width/height
+    imgEl.style.width = "60%";
+    imgEl.style.maxWidth = "100%";
+    imgEl.style.height = "auto";
+    imgEl.style.display = "block";
+    imgEl.style.margin = "0.5rem auto";
     imgEl.addEventListener("dragstart", (ev) => {
-      try {
-        const src = imgEl.getAttribute("src");
-        draggingState.current.draggedImgEl = imgEl;
-        draggingState.current.draggedSrc = src;
-        // find blot for removal using Quill.find
-        const blot = Quill.find(imgEl);
-        draggingState.current.draggedBlot = blot || null;
-        // put src into dataTransfer so drop handlers can detect it
-        if (ev.dataTransfer) ev.dataTransfer.setData("text/plain", src);
-      } catch (err) {
-        // ignore
-      }
-    });
-
-    // optional: ondragend clear
-    imgEl.addEventListener("dragend", () => {
-      draggingState.current.draggedImgEl = null;
-      draggingState.current.draggedBlot = null;
-      draggingState.current.draggedSrc = null;
+      if (ev.dataTransfer) ev.dataTransfer.setData("text/plain", imgEl.getAttribute("src"));
     });
   };
 
   const insertImageIntoEditor = (imageUrl, fileName) => {
     const editor = quillRef?.current?.getEditor();
     if (!editor) {
-      onImagesChange((prev) => [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl }]);
+      onImagesChange((prev) => [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl, width: "120px", height: "80px" }]);
       return;
     }
 
-    // Insert at current cursor position (or end)
     const range = editor.getSelection(true);
     const index = (range && typeof range.index === "number") ? range.index : editor.getLength();
-
     editor.insertEmbed(index, "image", imageUrl, "user");
     editor.setSelection(index + 1, 0);
 
-    // After Quill renders the embed, style and make it draggable + attach handlers
+    // style the inserted DOM image so HTML includes inline style
     setTimeout(() => {
       try {
         const imgs = editor.root.querySelectorAll("img");
         const imgEl = imgs[imgs.length - 1];
-        if (imgEl) {
-          imgEl.setAttribute("data-default-size", "true");
-          imgEl.style.width = "60%";
-          imgEl.style.maxWidth = "100%";
-          imgEl.style.height = "auto";
-          imgEl.style.display = "block";
-          imgEl.style.margin = "0.5rem 0";
-          prepareImageDom(imgEl);
-        }
-      } catch (err) {
-        // ignore
-      }
-    }, 60);
+        if (imgEl) prepareImageDom(imgEl);
+      } catch (err) { /* ignore */ }
+    }, 40);
 
-    // Add to local list for preview/management
-    onImagesChange((prev) => [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl }]);
-
-    // Make the editor accept drops for moving images: (attach once)
-    const root = quillRef?.current?.getEditor().root;
-    if (root && !root._hasDropHandlers) {
-      root._hasDropHandlers = true;
-      // allow drop
-      root.addEventListener("dragover", (e) => {
-        e.preventDefault();
-      });
-
-      root.addEventListener("drop", (e) => {
-        e.preventDefault();
-
-        const editor = quillRef?.current?.getEditor();
-        if (!editor) return;
-
-        // try to read src from dataTransfer
-        const src = e.dataTransfer?.getData("text/plain") || null;
-
-        // get drop position: Quill usually sets selection for drop location, so prefer it
-        let dropIndex = editor.getSelection(true)?.index;
-        if (dropIndex == null) {
-          // fallback: try caret position from point
-          let range;
-          if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
-          else if (document.caretPositionFromPoint) {
-            const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-            if (pos) range = document.createRange();
-            if (pos) range.setStart(pos.offsetNode, pos.offset);
-          }
-          if (range) {
-            // get node at that caret - walk up to find blot
-            const node = range.startContainer;
-            try {
-              const blot = Quill.find(node);
-              dropIndex = blot ? editor.getIndex(blot) : editor.getLength();
-            } catch {
-              dropIndex = editor.getLength();
-            }
-          } else {
-            dropIndex = editor.getLength();
-          }
-        }
-
-        // if we have a src, insert it at dropIndex
-        if (src) {
-          editor.insertEmbed(dropIndex, "image", src, "user");
-          // remove the original image blot if we have it (move)
-          const dragged = draggingState.current;
-          if (dragged && dragged.draggedBlot) {
-            try {
-              const originalIndex = editor.getIndex(dragged.draggedBlot);
-              // If originalIndex < newIndex and original will be removed first, newIndex shifts - handle carefully:
-              // If originalIndex < dropIndex, after deletion dropIndex should be reduced by 1
-              let adjustedDropIndex = dropIndex;
-              if (typeof originalIndex === "number" && originalIndex < dropIndex) adjustedDropIndex = dropIndex - 1;
-              editor.deleteText(originalIndex, 1);
-              // clear drag state
-              draggingState.current.draggedBlot = null;
-              draggingState.current.draggedImgEl = null;
-              draggingState.current.draggedSrc = null;
-            } catch (err) {
-              // ignore removal errors
-            }
-          }
-        } else {
-          // no src in dataTransfer — nothing to do
-        }
-      });
-    }
+    // push image to images[] with thumbnail defaults (px values)
+    onImagesChange((prev) => {
+      const updated = [...prev, { id: Date.now(), name: fileName || "image", url: imageUrl, width: "120px", height: "80px" }];
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ title: (localStorage.getItem("last-title") || ""), content: editor.root.innerHTML || "", tags: [], images: updated }));
+      } catch (_) {}
+      return updated;
+    });
   };
 
   const handleFileChange = (e) => {
@@ -331,7 +256,6 @@ function ImageUploader({ images, onImagesChange, quillRef }) {
     setIsUploading(true);
     setProgress(0);
 
-    // Read file as data URL (base64)
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target.result;
@@ -345,9 +269,8 @@ function ImageUploader({ images, onImagesChange, quillRef }) {
           setIsUploading(false);
           toast.success("Image uploaded and inserted into editor");
         }
-      }, 140);
+      }, 120);
     };
-
     reader.onerror = (err) => {
       console.error("FileReader error:", err);
       toast.error("Failed to read image file");
@@ -373,8 +296,19 @@ function ImageUploader({ images, onImagesChange, quillRef }) {
         <div className="image-list">
           {images.map((img) => (
             <div key={img.id} className="image-item">
-              <img src={img.url} alt={img.name} style={{ maxWidth: 120, maxHeight: 80, objectFit: "cover" }} />
-              <span>{img.name}</span>
+              {/* use stored width/height for thumbnail display */}
+              <img
+                src={img.url}
+                alt={img.name}
+                style={{
+                  width: img.width || "120px",
+                  height: img.height || "80px",
+                  objectFit: "cover",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb"
+                }}
+              />
+              <span style={{ display: "block", fontSize: 12, color: "#6b7280" }}>{img.name}</span>
               <button type="button" onClick={() => handleRemove(img.id)}>Remove</button>
             </div>
           ))}
@@ -394,9 +328,7 @@ function PreviewPane({ title, content, tags, images }) {
 
       {tags && tags.filter(Boolean).length > 0 && (
         <div className="preview-tags">
-          {tags.filter(Boolean).map((t) => (
-            <span key={t} className="tag-chip">{t}</span>
-          ))}
+          {tags.filter(Boolean).map((t) => <span key={t} className="tag-chip">{t}</span>)}
         </div>
       )}
 
@@ -407,7 +339,7 @@ function PreviewPane({ title, content, tags, images }) {
           <h3>Images</h3>
           <div className="preview-images">
             {images.map((img) => (
-              <img key={img.id} src={img.url} alt={img.name} />
+              <img key={img.id} src={img.url} alt={img.name} style={{ width: img.width || "140px", height: img.height || "92px", objectFit: "cover", borderRadius: 8, border: "1px solid #eee", margin: 6 }} />
             ))}
           </div>
         </>
@@ -416,7 +348,7 @@ function PreviewPane({ title, content, tags, images }) {
   );
 }
 
-/* ---------- Posts view ---------- */
+/* ---------- Posts list view ---------- */
 function PostListView({ posts, onSelectPost }) {
   const [query, setQuery] = useState("");
   const filtered = posts.filter((post) => {
@@ -450,7 +382,7 @@ function PostListView({ posts, onSelectPost }) {
 }
 
 /* ---------- Main App ---------- */
-function App() {
+export default function App() {
   const [view, setView] = useState("editor"); // "editor" | "posts"
   const [isPreview, setIsPreview] = useState(false);
 
@@ -463,141 +395,111 @@ function App() {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
 
   const quillRef = useRef(null);
-
-  // store last known selection so modal insertions can reuse it
   const lastSelectionRef = useRef(null);
 
+  // load draft
   useEffect(() => {
-    const savedDraft = localStorage.getItem(DRAFT_KEY);
-    if (!savedDraft) return;
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (!saved) return;
     try {
-      const { title: sTitle, content: sContent, tags: sTags, images: sImages } = JSON.parse(savedDraft);
-      setTitle(sTitle || "");
-      setContent(cleanHtml(sContent || ""));
-      setTags(Array.isArray(sTags) ? sTags.filter(Boolean) : []);
-      setImages(Array.isArray(sImages) ? sImages : []);
+      const parsed = JSON.parse(saved);
+      setTitle(parsed.title || "");
+      setContent(parsed.content || "");
+      setTags(Array.isArray(parsed.tags) ? parsed.tags : []);
+      setImages(Array.isArray(parsed.images) ? parsed.images : []);
     } catch (err) {
-      console.error("Failed to restore draft", err);
+      console.error("restore draft failed", err);
       localStorage.removeItem(DRAFT_KEY);
     }
   }, []);
 
+  // load posts
   useEffect(() => {
-    const savedPosts = localStorage.getItem(POSTS_KEY);
-    if (savedPosts) {
-      try {
-        const parsed = JSON.parse(savedPosts);
-        if (Array.isArray(parsed)) setPosts(parsed);
-        else localStorage.removeItem(POSTS_KEY);
-      } catch (err) {
-        console.error("Failed to parse posts", err);
-        localStorage.removeItem(POSTS_KEY);
-      }
-    }
+    const saved = localStorage.getItem(POSTS_KEY);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) setPosts(parsed);
+    } catch (err) { console.error("load posts failed", err); localStorage.removeItem(POSTS_KEY); }
   }, []);
 
-  // keep localStorage in sync whenever posts change
-  useEffect(()=> {
-    try {
-      localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
-    } catch (err) {
-      console.error("Failed to persist posts", err);
-    }
+  // persist posts
+  useEffect(() => {
+    try { localStorage.setItem(POSTS_KEY, JSON.stringify(posts)); } catch (err) { console.error(err); }
   }, [posts]);
 
+  // autosave drafts
   useAutoSaveDraft({ title, content, tags, images }, 30000);
 
-  // set up selection-change listener once quill is mounted so we always remember last caret position
-// set up selection-change + extra handlers so caret is always reliable (selection-change, text-change, click, keyup, paste, Enter)
-useEffect(() => {
-  const editor = quillRef.current?.getEditor();
-  if (!editor) return;
+  // persist draft immediately when images changes (so uploads don't vanish)
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ title, content, tags, images })); } catch (_) {}
+  }, [images]);
 
-  // store a shallow copy of the selection
-  const snapshotSelection = () => {
-    try {
-      const sel = editor.getSelection();
-      if (sel) lastSelectionRef.current = { index: sel.index, length: sel.length };
+  // keep last selection so modal insertion and resizing work after focus loss
+  useEffect(() => {
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
+
+    const snapshotSelection = () => {
+      try {
+        const sel = editor.getSelection();
+        if (sel) lastSelectionRef.current = { index: sel.index, length: sel.length };
+        else lastSelectionRef.current = null;
+      } catch {}
+    };
+
+    const handleSelectionChange = (range) => {
+      if (range) lastSelectionRef.current = { index: range.index, length: range.length };
       else lastSelectionRef.current = null;
-    } catch (err) {
-      // ignore
+    };
+
+    const onTextChange = () => snapshotSelection();
+    const onClick = () => snapshotSelection();
+    const onKeyUp = () => snapshotSelection();
+
+    const onPaste = (e) => {
+      if (!e.clipboardData) return;
+      const text = e.clipboardData.getData("text");
+      if (!text) return;
+      e.preventDefault();
+      let sel = null;
+      try { sel = editor.getSelection(); } catch {}
+      const saved = lastSelectionRef.current;
+      const insertIndex = (sel && typeof sel.index === "number") ? sel.index
+        : (saved && typeof saved.index === "number") ? saved.index
+        : Math.max(0, editor.getLength() - 1);
+
+      editor.insertText(insertIndex, text, "user");
+      editor.setSelection(insertIndex + text.length, 0, "user");
+      lastSelectionRef.current = { index: insertIndex + text.length, length: 0 };
+    };
+
+    try { editor.on("selection-change", handleSelectionChange); } catch {}
+    try { editor.on("text-change", onTextChange); } catch {}
+    if (editor.root) {
+      editor.root.addEventListener("click", onClick);
+      editor.root.addEventListener("keyup", onKeyUp);
+      editor.root.addEventListener("paste", onPaste);
     }
-  };
 
-  // selection-change handler (keeps lastSelectionRef up to date)
-  const handleSelectionChange = (range/*, oldRange, source */) => {
-    if (range) lastSelectionRef.current = { index: range.index, length: range.length };
-    else lastSelectionRef.current = null;
-  };
+    snapshotSelection();
 
-  // text-change / click / keyup => snapshot selection after typing/clicking
-  const onTextChange = () => snapshotSelection();
-  const onClick = () => snapshotSelection();
-  const onKeyUp = () => snapshotSelection();
+    return () => {
+      try { editor.off("selection-change", handleSelectionChange); } catch {}
+      try { editor.off("text-change", onTextChange); } catch {}
+      try {
+        if (editor.root) {
+          editor.root.removeEventListener("click", onClick);
+          editor.root.removeEventListener("keyup", onKeyUp);
+          editor.root.removeEventListener("paste", onPaste);
+        }
+      } catch {}
+    };
+  }, [quillRef.current]);
 
-  // paste handler: insert plain text at the recorded caret position
-  const onPaste = (e) => {
-    if (!e.clipboardData) return;
-    const pasteText = e.clipboardData.getData("text");
-    if (!pasteText) return; // allow default if no text (images etc)
-
-    e.preventDefault();
-    // prefer actual selection, fallback to saved selection, else end
-    let sel = null;
-    try { sel = editor.getSelection(); } catch {}
-    const saved = lastSelectionRef.current;
-    const insertIndex = (sel && typeof sel.index === "number") ? sel.index
-      : (saved && typeof saved.index === "number") ? saved.index
-      : Math.max(0, editor.getLength() - 1);
-
-    editor.insertText(insertIndex, pasteText, "user");
-    editor.setSelection(insertIndex + pasteText.length, 0, "user");
-    lastSelectionRef.current = { index: insertIndex + pasteText.length, length: 0 };
-  };
-
-  // Enter binding: allow default Quill handling then snapshot selection
-  const enterBinding = {
-    key: 13,
-    handler: function(range, context) {
-      // allow default behavior; snapshot after default handling
-      setTimeout(() => snapshotSelection(), 0);
-      return true;
-    }
-  };
-
-  // attach listeners
-  try { editor.on("selection-change", handleSelectionChange); } catch (e) {}
-  try { editor.on("text-change", onTextChange); } catch (e) {}
-  if (editor.root) {
-    editor.root.addEventListener("click", onClick);
-    editor.root.addEventListener("keyup", onKeyUp);
-    editor.root.addEventListener("paste", onPaste);
-  }
-  try { editor.keyboard.addBinding(enterBinding); } catch (e) {}
-
-  // initial snapshot
-  snapshotSelection();
-
-  // cleanup
-  return () => {
-    try { editor.off("selection-change", handleSelectionChange); } catch (e) {}
-    try { editor.off("text-change", onTextChange); } catch (e) {}
-    try { editor.keyboard.removeBinding(enterBinding); } catch (e) {}
-    try {
-      if (editor.root) {
-        editor.root.removeEventListener("click", onClick);
-        editor.root.removeEventListener("keyup", onKeyUp);
-        editor.root.removeEventListener("paste", onPaste);
-      }
-    } catch (e) {}
-  };
-}, [quillRef.current]);
-
-
-  const quillModules = {
-    toolbar: false,
-    imageResize: {},
-  };
+  const quillModules = { toolbar: false, imageResize: {} };
+  const quillFormats = ["header", "bold", "italic", "underline", "strike", "size", "list", "bullet", "link", "image"];
 
   const handleFormat = (format, value) => {
     const editor = quillRef.current?.getEditor();
@@ -633,15 +535,12 @@ useEffect(() => {
     editor.format(format, value === undefined ? true : value);
   };
 
-  // open link modal while capturing last selection so insertion works even if focus is lost
   const openLinkModal = () => {
     const editor = quillRef.current?.getEditor();
     try {
       const sel = editor?.getSelection();
       if (sel) lastSelectionRef.current = { index: sel.index, length: sel.length };
-    } catch (err) {
-      // ignore
-    }
+    } catch {}
     setLinkModalOpen(true);
   };
 
@@ -651,13 +550,9 @@ useEffect(() => {
     let finalUrl = url;
     if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) finalUrl = "https://" + finalUrl;
 
-    // Use saved selection if available (this deals with modal stealing focus)
     const saved = lastSelectionRef.current;
     let range = null;
-    try {
-      range = editor.getSelection();
-    } catch {}
-    // prefer actual selection if exists, else fallback to saved selection, else to end
+    try { range = editor.getSelection(); } catch {}
     const useIndex = (range && typeof range.index === "number") ? range.index
       : (saved && typeof saved.index === "number") ? saved.index
       : Math.max(0, editor.getLength() - 1);
@@ -666,24 +561,106 @@ useEffect(() => {
       : (saved && typeof saved.length === "number") ? saved.length
       : 0;
 
-    // If selection length > 0, apply link format to selected text
     if (useLength > 0) {
       editor.formatText(useIndex, useLength, "link", finalUrl, "user");
-      // set cursor right after selection
       editor.setSelection(useIndex + useLength, 0, "user");
       editor.focus();
-      // clear saved selection
       lastSelectionRef.current = null;
       return;
     }
 
-    // If no selection length, insert the URL text at index with link attribute
     editor.insertText(useIndex, finalUrl, { link: finalUrl }, "user");
     editor.setSelection(useIndex + finalUrl.length, 0, "user");
     editor.focus();
-
-    // clear saved selection
     lastSelectionRef.current = null;
+  };
+
+  // normalize user size input
+  const normalizeSizeValue = (raw) => {
+    if (!raw) return "";
+    const v = String(raw).trim();
+    if (v.endsWith("%")) return v;
+    if (/^[0-9]+$/.test(v)) return `${v}px`;
+    return v;
+  };
+
+  // ----- handle resize called from toolbar -----
+  const handleResizeImage = (widthRaw, heightRaw) => {
+    try {
+      const editor = quillRef.current?.getEditor();
+      if (!editor) {
+        toast.error("Editor not ready");
+        return;
+      }
+
+      // prefer current selection, but ensure we have a caret position
+      const sel = editor.getSelection(true);
+      if (!sel) {
+        toast.warn("Place cursor on the image or select it before resizing");
+        return;
+      }
+
+      // get leaf at selection index
+      let leaf;
+      try { [leaf] = editor.getLeaf(sel.index); } catch {}
+      const node = leaf && leaf.domNode ? leaf.domNode : null;
+
+      let imgEl = null;
+      if (node && node.tagName === "IMG") imgEl = node;
+      else {
+        try {
+          const prevLeafIndex = Math.max(0, sel.index - 1);
+          const [prevLeaf] = editor.getLeaf(prevLeafIndex) || [];
+          if (prevLeaf && prevLeaf.domNode && prevLeaf.domNode.tagName === "IMG") imgEl = prevLeaf.domNode;
+        } catch {}
+      }
+
+      if (!imgEl) {
+        toast.warn("Put your cursor inside the image (or click the image) before applying size.");
+        return;
+      }
+
+      const widthCss = normalizeSizeValue(widthRaw);
+      const heightCss = normalizeSizeValue(heightRaw);
+
+      if (widthCss) imgEl.style.width = widthCss;
+      else imgEl.style.removeProperty("width");
+
+      if (heightCss) imgEl.style.height = heightCss;
+      else imgEl.style.removeProperty("height");
+
+      imgEl.style.display = "block";
+      if (!imgEl.style.margin) imgEl.style.margin = "0.5rem auto";
+
+      // Persist HTML back to state and store size into images[] (so thumbnails update)
+      setTimeout(() => {
+        try {
+          const newHtml = editor.root.innerHTML;
+          setContent(newHtml);
+
+          // update images[] entry matching by src to store width/height for thumbnail
+          setImages((prev) => prev.map((it) => {
+            if (!it.url) return it;
+            // match src exactly
+            if (it.url === imgEl.src) {
+              return {
+                ...it,
+                width: widthCss || it.width,
+                height: heightCss || it.height
+              };
+            }
+            return it;
+          }));
+
+          toast.success("Image size updated");
+        } catch (err) {
+          console.error(err);
+        }
+      }, 40);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to resize image");
+    }
   };
 
   const handlePublish = () => {
@@ -704,17 +681,11 @@ useEffect(() => {
       createdAt: new Date().toISOString(),
     };
 
-    // Immediately persist posts (so they survive refresh even if effect hasn't run)
     const updatedPosts = [newPost, ...posts];
     setPosts(updatedPosts);
-    try {
-      localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
-    } catch (err) {
-      console.error("Failed to persist posts at publish time", err);
-    }
+    try { localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts)); } catch (err) { console.error(err); }
 
     toast.success("Post published!");
-
     setTitle("");
     setContent("");
     setTags([]);
@@ -726,16 +697,12 @@ useEffect(() => {
 
   const handleSelectPost = (post) => {
     setTitle(post.title || "");
-    setContent(cleanHtml(post.contentHtml || ""));
+    setContent(post.contentHtml || "");
     setTags((post.tags || []).filter(Boolean));
     setImages(post.images || []);
     setView("editor");
     setIsPreview(false);
-
-    toast.info("Loaded post for editing", {
-      autoClose: 1200,
-      pauseOnHover: false,
-    });
+    toast.info("Loaded post for editing", { autoClose: 1200, pauseOnHover: false });
   };
 
   const handleNewPostClick = () => {
@@ -773,16 +740,14 @@ useEffect(() => {
             </div>
 
             {!isPreview && <>
-              <EditorToolbar onFormat={handleFormat} onShowLinkModal={openLinkModal} />
+              <EditorToolbar onFormat={handleFormat} onShowLinkModal={openLinkModal} onResizeImage={handleResizeImage} />
               <ReactQuill
                 ref={quillRef}
                 theme="snow"
                 value={content}
-                onChange={(html) => {
-                  // keep editor responsive, but store cleaned HTML
-                  setContent(cleanHtml(html));
-                }}
+                onChange={(html) => setContent(html)}
                 modules={quillModules}
+                formats={quillFormats}
                 className="editor"
                 placeholder="Write your story here..."
               />
@@ -804,16 +769,15 @@ useEffect(() => {
       <LinkModal open={linkModalOpen} onClose={()=>setLinkModalOpen(false)} onInsert={handleInsertLink} />
       <ToastContainer position="bottom-right" theme="light" />
 
-      {/* small style fixes to improve preview spacing and title placement */}
+      {/* small helpful inline styles for preview spacing */}
       <style>{`
         .preview-pane h2 { margin: 0 0 0.6rem; line-height: 1.15; }
         .preview-content p { margin: 0 0 0.68rem; }
         .preview-content p:empty { display: none; }
+        .preview-content img { max-width: 100%; height: auto; display: block; margin: 0.6rem auto; }
         .ql-editor img { max-width: 100%; height: auto; display: block; margin: 0.5rem 0; }
-        .ql-editor img[data-default-size="true"] { width: 60%; max-width: 100%; height: auto; }
       `}</style>
     </div>
   );
 }
-
-export default App;
+  
