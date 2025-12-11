@@ -1,16 +1,54 @@
-# React + Vite
+# Interactive Blog
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A polished, single-file React + Vite WYSIWYG blog editor for demos and rapid prototyping.  
+Features rich-text editing (ReactQuill), image upload + inline sizing, tags, auto-save drafts, and local publish — all client-side (no backend required).
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🔎 Project overview
 
-## React Compiler
+**Interactive Blog** is a minimal but feature-rich front-end blog editor that allows users to:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Write and format content using a WYSIWYG editor (bold, italic, headings, lists, links).
+- Upload images (base64) and insert them into the editor.
+- Resize images by specifying Width / Height (supports `px`, `%`, or other CSS units).
+- Move images inside the editor using drag/drop (basic behavior).
+- Add and manage tags for posts.
+- Auto-save drafts to `localStorage` and restore them automatically.
+- Publish posts to a local list (persisted to `localStorage`) and edit previously published posts.
+- Preview sanitized HTML using `DOMPurify` to reduce XSS risk.
 
-## Expanding the ESLint configuration
+This is intended as a frontend prototype/demo or a starting point for a backend-enabled application.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+---
+
+## ✅ Features
+
+- Rich-text editing via **ReactQuill**.
+- Image upload from disk (read as base64 and inserted inline).
+- Inline image sizing via toolbar inputs (Width / Height) — accepts `300`, `300px`, `50%`, `auto`, etc.
+- Thumbnails panel listing uploaded images (with remove).
+- Draft auto-save (debounced) to `localStorage`.
+- Publish posts to a local posts list (persisted to `localStorage`).
+- Post preview with sanitized HTML via **DOMPurify**.
+- Toast notifications for user feedback via **react-toastify**.
+
+---
+
+## 🧰 Tech stack
+
+- React (function components + hooks)
+- Vite (dev server, HMR)
+- ReactQuill (QuillJS editor)
+- DOMPurify (sanitizing preview)
+- react-toastify (toasts)
+- Optional: `quill-image-resize-module-react` (for interactive corner resizing)
+
+---
+
+## 🔧 Quickstart (development)
+
+1. Clone the repo:
+   ```bash
+   git clone <your-repo-url>
+   cd <your-repo-folder>
