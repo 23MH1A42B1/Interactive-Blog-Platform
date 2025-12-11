@@ -129,7 +129,7 @@ function LinkModal({ open, onClose, onInsert }) {
       <div className="modal">
         <h3>Insert hyperlink</h3>
         <form onSubmit={handleSubmit}>
-          <input type="text" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <input autoFocus type="text" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
           <div className="modal-actions">
             <button type="button" onClick={onClose}>Cancel</button>
             <button type="submit">Insert</button>
@@ -143,12 +143,16 @@ function LinkModal({ open, onClose, onInsert }) {
 /* ---------- Tag selector ---------- */
 function TagSelector({ selectedTags, onChange }) {
   const [input, setInput] = useState("");
+  const inputRef = useRef(null);
+
   const addTag = (raw) => {
     const tag = raw.trim();
     if (!tag) return;
     if (selectedTags.includes(tag)) return;
     onChange([...selectedTags, tag]);
     setInput("");
+    // keep focus on tag input after adding
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(input); }
@@ -166,7 +170,7 @@ function TagSelector({ selectedTags, onChange }) {
             <button type="button" className="tag-remove" onClick={() => handleRemove(tag)}>×</button>
           </span>
         ))}
-        <input className="tag-text-input" placeholder={selectedTags.length === 0 ? "Type a tag and press Enter…" : "Add another tag…"} value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={handleKeyDown}/>
+        <input ref={inputRef} className="tag-text-input" placeholder={selectedTags.length === 0 ? "Type a tag and press Enter…" : "Add another tag…"} value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={handleKeyDown}/>
       </div>
       <small>Press Enter or comma to add a tag.</small>
     </div>
@@ -460,6 +464,9 @@ function App() {
 
   const quillRef = useRef(null);
 
+  // store last known selection so modal insertions can reuse it
+  const lastSelectionRef = useRef(null);
+
   useEffect(() => {
     const savedDraft = localStorage.getItem(DRAFT_KEY);
     if (!savedDraft) return;
@@ -489,11 +496,103 @@ function App() {
     }
   }, []);
 
+  // keep localStorage in sync whenever posts change
   useEffect(()=> {
-    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    try {
+      localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    } catch (err) {
+      console.error("Failed to persist posts", err);
+    }
   }, [posts]);
 
   useAutoSaveDraft({ title, content, tags, images }, 30000);
+
+  // set up selection-change listener once quill is mounted so we always remember last caret position
+// set up selection-change + extra handlers so caret is always reliable (selection-change, text-change, click, keyup, paste, Enter)
+useEffect(() => {
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
+
+  // store a shallow copy of the selection
+  const snapshotSelection = () => {
+    try {
+      const sel = editor.getSelection();
+      if (sel) lastSelectionRef.current = { index: sel.index, length: sel.length };
+      else lastSelectionRef.current = null;
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  // selection-change handler (keeps lastSelectionRef up to date)
+  const handleSelectionChange = (range/*, oldRange, source */) => {
+    if (range) lastSelectionRef.current = { index: range.index, length: range.length };
+    else lastSelectionRef.current = null;
+  };
+
+  // text-change / click / keyup => snapshot selection after typing/clicking
+  const onTextChange = () => snapshotSelection();
+  const onClick = () => snapshotSelection();
+  const onKeyUp = () => snapshotSelection();
+
+  // paste handler: insert plain text at the recorded caret position
+  const onPaste = (e) => {
+    if (!e.clipboardData) return;
+    const pasteText = e.clipboardData.getData("text");
+    if (!pasteText) return; // allow default if no text (images etc)
+
+    e.preventDefault();
+    // prefer actual selection, fallback to saved selection, else end
+    let sel = null;
+    try { sel = editor.getSelection(); } catch {}
+    const saved = lastSelectionRef.current;
+    const insertIndex = (sel && typeof sel.index === "number") ? sel.index
+      : (saved && typeof saved.index === "number") ? saved.index
+      : Math.max(0, editor.getLength() - 1);
+
+    editor.insertText(insertIndex, pasteText, "user");
+    editor.setSelection(insertIndex + pasteText.length, 0, "user");
+    lastSelectionRef.current = { index: insertIndex + pasteText.length, length: 0 };
+  };
+
+  // Enter binding: allow default Quill handling then snapshot selection
+  const enterBinding = {
+    key: 13,
+    handler: function(range, context) {
+      // allow default behavior; snapshot after default handling
+      setTimeout(() => snapshotSelection(), 0);
+      return true;
+    }
+  };
+
+  // attach listeners
+  try { editor.on("selection-change", handleSelectionChange); } catch (e) {}
+  try { editor.on("text-change", onTextChange); } catch (e) {}
+  if (editor.root) {
+    editor.root.addEventListener("click", onClick);
+    editor.root.addEventListener("keyup", onKeyUp);
+    editor.root.addEventListener("paste", onPaste);
+  }
+  try { editor.keyboard.addBinding(enterBinding); } catch (e) {}
+
+  // initial snapshot
+  snapshotSelection();
+
+  // cleanup
+  return () => {
+    try { editor.off("selection-change", handleSelectionChange); } catch (e) {}
+    try { editor.off("text-change", onTextChange); } catch (e) {}
+    try { editor.keyboard.removeBinding(enterBinding); } catch (e) {}
+    try {
+      if (editor.root) {
+        editor.root.removeEventListener("click", onClick);
+        editor.root.removeEventListener("keyup", onKeyUp);
+        editor.root.removeEventListener("paste", onPaste);
+      }
+    } catch (e) {}
+  };
+}, [quillRef.current]);
+
 
   const quillModules = {
     toolbar: false,
@@ -534,27 +633,57 @@ function App() {
     editor.format(format, value === undefined ? true : value);
   };
 
+  // open link modal while capturing last selection so insertion works even if focus is lost
+  const openLinkModal = () => {
+    const editor = quillRef.current?.getEditor();
+    try {
+      const sel = editor?.getSelection();
+      if (sel) lastSelectionRef.current = { index: sel.index, length: sel.length };
+    } catch (err) {
+      // ignore
+    }
+    setLinkModalOpen(true);
+  };
+
   const handleInsertLink = (url) => {
     const editor = quillRef.current?.getEditor();
     if (!editor) return;
     let finalUrl = url;
     if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) finalUrl = "https://" + finalUrl;
-    const range = editor.getSelection();
 
-    if (!range) {
-      const index = Math.max(0, editor.getLength() - 1);
-      editor.insertText(index, finalUrl, { link: finalUrl });
-      editor.setSelection(index + finalUrl.length, 0);
+    // Use saved selection if available (this deals with modal stealing focus)
+    const saved = lastSelectionRef.current;
+    let range = null;
+    try {
+      range = editor.getSelection();
+    } catch {}
+    // prefer actual selection if exists, else fallback to saved selection, else to end
+    const useIndex = (range && typeof range.index === "number") ? range.index
+      : (saved && typeof saved.index === "number") ? saved.index
+      : Math.max(0, editor.getLength() - 1);
+
+    const useLength = (range && typeof range.length === "number") ? range.length
+      : (saved && typeof saved.length === "number") ? saved.length
+      : 0;
+
+    // If selection length > 0, apply link format to selected text
+    if (useLength > 0) {
+      editor.formatText(useIndex, useLength, "link", finalUrl, "user");
+      // set cursor right after selection
+      editor.setSelection(useIndex + useLength, 0, "user");
+      editor.focus();
+      // clear saved selection
+      lastSelectionRef.current = null;
       return;
     }
 
-    if (range.length === 0) {
-      editor.insertText(range.index, finalUrl, { link: finalUrl });
-      editor.setSelection(range.index + finalUrl.length, 0);
-    } else {
-      editor.formatText(range.index, range.length, "link", finalUrl);
-      editor.setSelection(range.index + range.length, 0);
-    }
+    // If no selection length, insert the URL text at index with link attribute
+    editor.insertText(useIndex, finalUrl, { link: finalUrl }, "user");
+    editor.setSelection(useIndex + finalUrl.length, 0, "user");
+    editor.focus();
+
+    // clear saved selection
+    lastSelectionRef.current = null;
   };
 
   const handlePublish = () => {
@@ -575,7 +704,15 @@ function App() {
       createdAt: new Date().toISOString(),
     };
 
-    setPosts((prev) => [newPost, ...prev]);
+    // Immediately persist posts (so they survive refresh even if effect hasn't run)
+    const updatedPosts = [newPost, ...posts];
+    setPosts(updatedPosts);
+    try {
+      localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
+    } catch (err) {
+      console.error("Failed to persist posts at publish time", err);
+    }
+
     toast.success("Post published!");
 
     setTitle("");
@@ -636,7 +773,7 @@ function App() {
             </div>
 
             {!isPreview && <>
-              <EditorToolbar onFormat={handleFormat} onShowLinkModal={()=>setLinkModalOpen(true)} />
+              <EditorToolbar onFormat={handleFormat} onShowLinkModal={openLinkModal} />
               <ReactQuill
                 ref={quillRef}
                 theme="snow"
